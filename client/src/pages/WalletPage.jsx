@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import http, { getErrorMessage } from '../api/http';
 import { useAuth } from '../hooks/useAuth';
 import { useNotifications } from '../hooks/useNotifications';
-import { formatCoins } from '../utils/format';
+import { formatCoins, formatLocalDateTime } from '../utils/format';
 
 const panelClass = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
 const defaultWorkspaceOptions = {
@@ -54,17 +54,6 @@ const StatusBadge = ({ status }) => {
       {status}
     </span>
   );
-};
-
-const formatDateTime = (value) => {
-  if (!value) {
-    return 'Not available';
-  }
-
-  return new Intl.DateTimeFormat('en-PK', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(new Date(value));
 };
 
 const copyToClipboard = async (value, label) => {
@@ -119,7 +108,7 @@ const PaymentRow = ({ payment }) => (
       </div>
     ) : null}
 
-    <p className="mt-4 text-xs uppercase tracking-[0.18em] text-slate-400">{formatDateTime(payment.createdAt)}</p>
+    <p className="mt-4 text-xs uppercase tracking-[0.18em] text-slate-400">{formatLocalDateTime(payment.createdAt)}</p>
   </div>
 );
 
@@ -364,7 +353,7 @@ const WalletPage = () => {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Created</p>
-                    <p className="mt-2 text-sm font-medium text-slate-900">{formatDateTime(activePayment.createdAt)}</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">{formatLocalDateTime(activePayment.createdAt)}</p>
                   </div>
                 </div>
 

@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../hooks/useNotifications';
-
-const formatNotificationTime = (value) =>
-  new Intl.DateTimeFormat('en-PK', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(new Date(value));
+import { formatLocalDateTime } from '../utils/format';
 
 const BellIcon = ({ ringing = false }) => (
   <svg
@@ -138,7 +133,7 @@ const NotificationBell = () => {
                     {!notification.readAt ? <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" /> : null}
                   </div>
                   <p className="mt-3 text-xs uppercase tracking-[0.18em] text-slate-400">
-                    {formatNotificationTime(notification.createdAt)}
+                    {formatLocalDateTime(notification.createdAt)}
                   </p>
                 </button>
               ))
