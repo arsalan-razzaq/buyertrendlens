@@ -12,6 +12,7 @@ const walletRoutes = require('./routes/walletRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const contactRoutes = require('./routes/contactRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -19,6 +20,14 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 const rateLimitWindowMs = Math.max(Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, 1000);
 const rateLimitMax = Math.max(Number(process.env.RATE_LIMIT_MAX) || 300, 1);
 const normalizeOrigin = (origin) => String(origin || '').trim().replace(/\/$/, '');
+const isAllowedVercelOrigin = (origin) => {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return hostname === 'vercel.app' || hostname.endsWith('.vercel.app');
+  } catch (error) {
+    return false;
+  }
+};
 const configuredOrigins = [process.env.CORS_ORIGINS, process.env.CLIENT_URL]
   .filter(Boolean)
   .flatMap((value) => String(value).split(','))
@@ -60,7 +69,7 @@ app.use(
         return;
       }
 
-      if (!origin || allowedOrigins.has(normalizeOrigin(origin))) {
+      if (!origin || allowedOrigins.has(normalizeOrigin(origin)) || isAllowedVercelOrigin(origin)) {
         callback(null, true);
         return;
       }
@@ -99,6 +108,7 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

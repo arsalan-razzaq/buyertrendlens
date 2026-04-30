@@ -56,6 +56,33 @@ body {
   @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold;
 }
 
+.bell-ring {
+  animation: bell-ring 1.2s ease-in-out;
+  transform-origin: top center;
+}
+
+@keyframes bell-ring {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  15% {
+    transform: rotate(14deg);
+  }
+  30% {
+    transform: rotate(-12deg);
+  }
+  45% {
+    transform: rotate(10deg);
+  }
+  60% {
+    transform: rotate(-8deg);
+  }
+  75% {
+    transform: rotate(4deg);
+  }
+}
+
 @media print {
   .print-hidden {
     display: none !important;

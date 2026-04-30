@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { formatCoins } from '../utils/format';
 import AppLogo from '../components/AppLogo';
+import NotificationBell from '../components/NotificationBell';
 
 const DashboardIcon = () => (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -214,13 +215,16 @@ const DashboardLayout = () => {
                 </div>
               </div>
               <div className="shrink-0">
-                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700 shadow-sm">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                    <WalletChipIcon />
-                  </span>
-                  <div className="leading-tight">
-                    <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">Wallet</p>
-                    <p className="text-xs font-semibold text-slate-950 sm:text-sm">{formatCoins(user?.coins)}</p>
+                <div className="flex items-center gap-3">
+                  <NotificationBell />
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700 shadow-sm">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                      <WalletChipIcon />
+                    </span>
+                    <div className="leading-tight">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">Wallet</p>
+                      <p className="text-xs font-semibold text-slate-950 sm:text-sm">{formatCoins(user?.coins)}</p>
+                    </div>
                   </div>
                 </div>
               </div>

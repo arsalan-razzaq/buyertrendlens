@@ -10,6 +10,10 @@
       "destination": "http://72.60.209.209:5000/api/:path*"
     },
     {
+      "source": "/socket.io/:path*",
+      "destination": "http://72.60.209.209:5000/socket.io/:path*"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
