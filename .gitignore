@@ -13,3 +13,5 @@ yarn-error.log*
 .codex-run
 .remote
 *.tar.gz
+
+.vercel
