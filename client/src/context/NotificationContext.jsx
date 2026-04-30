@@ -13,6 +13,10 @@ const resolveSocketUrl = () => {
     return explicitUrl;
   }
 
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app')) {
+    return 'https://buyertrendlens.com';
+  }
+
   if (API_BASE_URL.startsWith('http')) {
     return new URL(API_BASE_URL).origin;
   }
