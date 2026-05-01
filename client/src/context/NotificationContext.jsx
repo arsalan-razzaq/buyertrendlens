@@ -6,26 +6,73 @@ import { useAuth } from '../hooks/useAuth';
 
 export const NotificationContext = createContext(null);
 
-const resolveSocketUrl = () => {
-  const explicitUrl = import.meta.env.VITE_SOCKET_URL?.trim();
+const DEFAULT_SOCKET_PATH = '/socket.io';
+const VERCEL_SOCKET_ORIGIN = 'https://buyertrendlens.com';
+const isAbsoluteUrl = (value) => /^https?:\/\//i.test(value);
 
-  if (explicitUrl) {
-    return explicitUrl;
+const resolveSocketConfig = () => {
+  const explicitValue = import.meta.env.VITE_SOCKET_URL?.trim();
+  const isVercelHost =
+    typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
+
+  if (explicitValue) {
+    if (isAbsoluteUrl(explicitValue)) {
+      const parsedUrl = new URL(explicitValue);
+      return {
+        origin: parsedUrl.origin,
+        path: parsedUrl.pathname && parsedUrl.pathname !== '/' ? parsedUrl.pathname : DEFAULT_SOCKET_PATH
+      };
+    }
+
+    if (explicitValue.startsWith('/')) {
+      if (isVercelHost) {
+        return {
+          origin: VERCEL_SOCKET_ORIGIN,
+          path: explicitValue
+        };
+      }
+
+      if (API_BASE_URL.startsWith('http')) {
+        return {
+          origin: new URL(API_BASE_URL).origin,
+          path: explicitValue
+        };
+      }
+
+      if (typeof window !== 'undefined') {
+        return {
+          origin: window.location.origin,
+          path: explicitValue
+        };
+      }
+    }
   }
 
-  if (typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app')) {
-    return 'https://buyertrendlens.com';
+  if (isVercelHost) {
+    return {
+      origin: VERCEL_SOCKET_ORIGIN,
+      path: DEFAULT_SOCKET_PATH
+    };
   }
 
   if (API_BASE_URL.startsWith('http')) {
-    return new URL(API_BASE_URL).origin;
+    return {
+      origin: new URL(API_BASE_URL).origin,
+      path: DEFAULT_SOCKET_PATH
+    };
   }
 
   if (typeof window !== 'undefined') {
-    return window.location.origin;
+    return {
+      origin: window.location.origin,
+      path: DEFAULT_SOCKET_PATH
+    };
   }
 
-  return '';
+  return {
+    origin: '',
+    path: DEFAULT_SOCKET_PATH
+  };
 };
 
 const canUseBrowserNotifications = () =>
@@ -129,11 +176,13 @@ export const NotificationProvider = ({ children }) => {
       return undefined;
     }
 
-    const nextSocket = io(resolveSocketUrl(), {
+    const { origin, path } = resolveSocketConfig();
+    const nextSocket = io(origin || undefined, {
       auth: {
         token
       },
-      transports: ['websocket', 'polling']
+      path,
+      transports: ['polling', 'websocket']
     });
 
     socketRef.current = nextSocket;
@@ -141,11 +190,15 @@ export const NotificationProvider = ({ children }) => {
 
     nextSocket.on('connect', () => setConnected(true));
     nextSocket.on('disconnect', () => setConnected(false));
+    nextSocket.on('connect_error', (error) => {
+      console.error('Notification socket connection failed:', error.message);
+    });
     nextSocket.on('notification:new', handleIncomingNotification);
 
     return () => {
       nextSocket.off('connect');
       nextSocket.off('disconnect');
+      nextSocket.off('connect_error');
       nextSocket.off('notification:new', handleIncomingNotification);
       nextSocket.disconnect();
       socketRef.current = null;
