@@ -77,10 +77,22 @@ export const AuthProvider = ({ children }) => {
     }
   }, [persistSession]);
 
-  const signup = useCallback(async (payload) => {
+  const startSignup = useCallback(async (payload) => {
     setLoading(true);
     try {
-      const { data } = await http.post('/auth/signup', payload);
+      const { data } = await http.post('/auth/signup/start', payload);
+      return data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const verifySignupOtp = useCallback(async (payload) => {
+    setLoading(true);
+    try {
+      const { data } = await http.post('/auth/signup/verify', payload);
       persistSession(data);
       return data;
     } catch (error) {
@@ -94,6 +106,21 @@ export const AuthProvider = ({ children }) => {
     setLoading(true);
     try {
       const { data } = await http.post(googleAuthUrl, { credential });
+      if (data?.token && data?.user) {
+        persistSession(data);
+      }
+      return data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [persistSession]);
+
+  const completeGoogleSignup = useCallback(async (payload) => {
+    setLoading(true);
+    try {
+      const { data } = await http.post('/auth/google/complete', payload);
       persistSession(data);
       return data;
     } catch (error) {
@@ -122,12 +149,14 @@ export const AuthProvider = ({ children }) => {
       isAuthenticated: Boolean(user),
       isAdmin: user?.role === 'admin',
       login,
-      signup,
+      startSignup,
+      verifySignupOtp,
       googleLogin,
+      completeGoogleSignup,
       logout,
       refreshProfile
     }),
-    [user, ready, loading, login, signup, googleLogin, logout, refreshProfile]
+    [user, ready, loading, login, startSignup, verifySignupOtp, googleLogin, completeGoogleSignup, logout, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

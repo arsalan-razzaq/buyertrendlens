@@ -23,6 +23,15 @@ const DataIcon = () => (
   </svg>
 );
 
+const MarketplaceAltIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 7h16" />
+    <path d="M6 11h12" />
+    <path d="M8 15h8" />
+    <path d="M10 19h4" />
+  </svg>
+);
+
 const WalletIcon = () => (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a2 2 0 0 1 2 2v1H5.5A2.5 2.5 0 0 0 3 10.5v-3Z" />
@@ -72,6 +81,7 @@ const WalletChipIcon = () => (
 const userNavItems = [
   { label: 'Dashboard', path: '/dashboard', hint: 'Overview', icon: <DashboardIcon /> },
   { label: 'G2g', path: '/g2g', hint: 'Data', icon: <DataIcon /> },
+  { label: 'Eldorado', path: '/eldorado', hint: 'Data', icon: <MarketplaceAltIcon /> },
   { label: 'Wallet', path: '/wallet', hint: 'Connection', icon: <WalletIcon /> },
   { label: 'Support', path: '/support', hint: 'Help', icon: <SupportIcon /> }
 ];

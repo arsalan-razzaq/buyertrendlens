@@ -7,6 +7,7 @@ const {
   getCacheKey,
   resolveSellerRankLabel
 } = require('../services/filterService');
+const { normalizeDataset } = require('../utils/dataset');
 const {
   isRemoteDatasetEnabled,
   fetchRemoteDataset,
@@ -29,9 +30,25 @@ const sortGamesByOrders = (games = []) =>
     return toTrimmedString(firstGame?.name).localeCompare(toTrimmedString(secondGame?.name));
   });
 
+const clampOptionLimit = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 100;
+  }
+
+  return Math.min(Math.max(Math.trunc(parsed), 1), 250);
+};
+
+const assertLocalDatasetSupported = (dataset, res) => {
+  if (dataset !== 'g2g') {
+    res.status(501);
+    throw new Error(`${dataset.toUpperCase()} dataset is not configured on this backend.`);
+  }
+};
+
 const createDistinctPipeline = (
   field,
-  { equals = '', contains = '', category = '', gameName = '', sellerName = '', sellerRank = '' } = {}
+  { equals = '', contains = '', category = '', gameName = '', sellerName = '', sellerRank = '', limit = 100 } = {}
 ) => {
   const match = {
     [field]: { $exists: true, $ne: null }
@@ -115,6 +132,9 @@ const createDistinctPipeline = (
     },
     {
       $sort: { value: 1 }
+    },
+    {
+      $limit: limit
     }
   );
 
@@ -122,11 +142,12 @@ const createDistinctPipeline = (
 };
 
 const getDataRecords = asyncHandler(async (req, res) => {
-  const useRemoteDataset = isRemoteDatasetEnabled();
+  const dataset = normalizeDataset(req.query.dataset);
+  const useRemoteDataset = isRemoteDatasetEnabled(dataset);
   const filters = useRemoteDataset ? req.query : buildFilters(req.query);
   const page = Math.max(Number(req.query.page) || 1, 1);
   const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
-  const cacheKey = getCacheKey(filters, page, limit);
+  const cacheKey = getCacheKey({ dataset, ...filters }, page, limit);
   const cached = filterCache.get(cacheKey);
 
   if (cached) {
@@ -135,6 +156,7 @@ const getDataRecords = asyncHandler(async (req, res) => {
 
   if (useRemoteDataset) {
     const payload = await fetchRemoteDataset({
+      dataset,
       filters: req.query,
       page,
       limit,
@@ -144,6 +166,8 @@ const getDataRecords = asyncHandler(async (req, res) => {
     filterCache.set(cacheKey, payload);
     return res.json(payload);
   }
+
+  assertLocalDatasetSupported(dataset, res);
 
   const skip = (page - 1) * limit;
 
@@ -165,9 +189,13 @@ const getDataRecords = asyncHandler(async (req, res) => {
 });
 
 const getPublicStats = asyncHandler(async (req, res) => {
-  const totalRows = isRemoteDatasetEnabled()
-    ? await countRemoteDatasetRecords()
-    : await DataRecord.countDocuments({});
+  const dataset = normalizeDataset(req.query.dataset);
+  const totalRows = isRemoteDatasetEnabled(dataset)
+    ? await countRemoteDatasetRecords({}, dataset)
+    : (() => {
+        assertLocalDatasetSupported(dataset, res);
+        return DataRecord.countDocuments({});
+      })();
 
   res.json({
     totalRows
@@ -175,6 +203,7 @@ const getPublicStats = asyncHandler(async (req, res) => {
 });
 
 const getFilterOptions = asyncHandler(async (req, res) => {
+  const dataset = normalizeDataset(req.query.dataset);
   const category = toTrimmedString(req.query.category);
   const gameName = toTrimmedString(req.query.gameName || req.query.game_name);
   const sellerName = toTrimmedString(req.query.sellerName || req.query.seller_name);
@@ -185,16 +214,19 @@ const getFilterOptions = asyncHandler(async (req, res) => {
   const categorySearch = toTrimmedString(req.query.categorySearch || req.query.category_search);
   const gameSearch = toTrimmedString(req.query.gameSearch || req.query.game_search);
   const sellerSearch = toTrimmedString(req.query.sellerSearch || req.query.seller_search);
+  const optionLimit = clampOptionLimit(req.query.limit || req.query.maxResults);
 
-  if (isRemoteDatasetEnabled()) {
+  if (isRemoteDatasetEnabled(dataset)) {
     const payload = await fetchRemoteFilterOptions({
+      dataset,
       category,
       gameName,
       sellerName,
       minSellerRank,
       categorySearch,
       gameSearch,
-      sellerSearch
+      sellerSearch,
+      limit: optionLimit
     });
 
     const sortedGames = sortGamesByOrders(payload.games);
@@ -205,13 +237,16 @@ const getFilterOptions = asyncHandler(async (req, res) => {
     });
   }
 
+  assertLocalDatasetSupported(dataset, res);
+
   const [categories, games, sellers] = await Promise.all([
     DataRecord.aggregate(
       createDistinctPipeline('category', {
         contains: categorySearch,
         gameName,
         sellerName,
-        sellerRank
+        sellerRank,
+        limit: optionLimit
       })
     ),
     DataRecord.aggregate([
@@ -219,7 +254,8 @@ const getFilterOptions = asyncHandler(async (req, res) => {
         category,
         sellerName,
         sellerRank,
-        contains: gameSearch
+        contains: gameSearch,
+        limit: optionLimit
       }),
       {
         $lookup: {
@@ -289,7 +325,8 @@ const getFilterOptions = asyncHandler(async (req, res) => {
         category,
         gameName,
         sellerRank,
-        contains: sellerSearch
+        contains: sellerSearch,
+        limit: optionLimit
       })
     )
   ]);

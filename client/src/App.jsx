@@ -12,6 +12,7 @@ import DashboardPage from './pages/DashboardPage';
 import WalletPage from './pages/WalletPage';
 import AdminPage from './pages/AdminPage';
 import G2gpage from './pages/G2gpage';
+import EldoradoPage from './pages/EldoradoPage';
 import SupportPage from './pages/SupportPage';
 
 const App = () => {
@@ -34,6 +35,7 @@ const App = () => {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/wallet" element={<WalletPage />} />
             <Route path="/g2g" element={<G2gpage />} />
+            <Route path="/eldorado" element={<EldoradoPage />} />
             <Route path="/support" element={<SupportPage />} />
           </Route>
         </Route>

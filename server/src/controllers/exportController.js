@@ -10,6 +10,7 @@ const {
   fetchAllRemoteDatasetRecords,
   enrichRemoteDatasetRecordsForExport
 } = require('../services/remoteDatasetService');
+const { normalizeDataset } = require('../utils/dataset');
 
 const COIN_COST_PER_ROW = 1;
 const DEFAULT_EXPORT_FORMAT = 'csv';
@@ -37,13 +38,24 @@ const exportFormatConfig = {
 
 const getExportFormat = (value) => exportFormatConfig[String(value || DEFAULT_EXPORT_FORMAT).toLowerCase()] ? String(value || DEFAULT_EXPORT_FORMAT).toLowerCase() : DEFAULT_EXPORT_FORMAT;
 
+const assertLocalDatasetSupported = (dataset, res) => {
+  if (dataset !== 'g2g') {
+    res.status(501);
+    throw new Error(`${dataset.toUpperCase()} dataset is not configured on this backend.`);
+  }
+};
+
 const previewExport = asyncHandler(async (req, res) => {
   const rawFilters = req.body || {};
+  const dataset = normalizeDataset(rawFilters.dataset);
   const format = getExportFormat(rawFilters.format);
   const filters = buildFilters(rawFilters);
-  const totalRows = isRemoteDatasetEnabled()
-    ? await countRemoteDatasetRecords(rawFilters)
-    : await DataRecord.countDocuments(filters);
+  const totalRows = isRemoteDatasetEnabled(dataset)
+    ? await countRemoteDatasetRecords(rawFilters, dataset)
+    : (() => {
+        assertLocalDatasetSupported(dataset, res);
+        return DataRecord.countDocuments(filters);
+      })();
   const cost = Number((totalRows * COIN_COST_PER_ROW).toFixed(2));
   const remainingBalance = Number(Math.max(req.user.coins - cost, 0).toFixed(2));
 
@@ -59,12 +71,16 @@ const previewExport = asyncHandler(async (req, res) => {
 
 const exportCsv = asyncHandler(async (req, res) => {
   const rawFilters = req.body || {};
+  const dataset = normalizeDataset(rawFilters.dataset);
   const format = getExportFormat(rawFilters.format);
   const exportConfig = exportFormatConfig[format];
   const filters = buildFilters(rawFilters);
-  const totalRows = isRemoteDatasetEnabled()
-    ? await countRemoteDatasetRecords(rawFilters)
-    : await DataRecord.countDocuments(filters);
+  const totalRows = isRemoteDatasetEnabled(dataset)
+    ? await countRemoteDatasetRecords(rawFilters, dataset)
+    : (() => {
+        assertLocalDatasetSupported(dataset, res);
+        return DataRecord.countDocuments(filters);
+      })();
 
   if (!totalRows) {
     res.status(400);
@@ -73,9 +89,12 @@ const exportCsv = asyncHandler(async (req, res) => {
 
   const cost = Number((totalRows * COIN_COST_PER_ROW).toFixed(2));
 
-  const records = isRemoteDatasetEnabled()
-    ? await enrichRemoteDatasetRecordsForExport(await fetchAllRemoteDatasetRecords(rawFilters))
-    : await DataRecord.find(filters).sort({ createdAt: -1 }).lean();
+  const records = isRemoteDatasetEnabled(dataset)
+    ? await enrichRemoteDatasetRecordsForExport(await fetchAllRemoteDatasetRecords(rawFilters, dataset), dataset)
+    : await (() => {
+        assertLocalDatasetSupported(dataset, res);
+        return DataRecord.find(filters).sort({ createdAt: -1 }).lean();
+      })();
   const content = exportConfig.createContent(records);
 
   // Deduct coins atomically so concurrent exports cannot overspend the same wallet balance.
@@ -97,6 +116,7 @@ const exportCsv = asyncHandler(async (req, res) => {
     reason: exportConfig.reason,
     metadata: {
       totalRows,
+      dataset,
       filters,
       format
     }

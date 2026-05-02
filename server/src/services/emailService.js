@@ -178,7 +178,37 @@ const sendPaymentStatusEmail = async ({
   });
 };
 
+const sendSignupOtpEmail = async ({ to, name, otp, expiresInMinutes = 10 }) => {
+  const config = getSmtpConfig();
+  const transporter = createTransporter();
+  const shell = buildEmailShell({
+    eyebrow: 'Signup Verification',
+    title: 'Verify your email address',
+    intro: 'Use the one-time code below to complete your Buyer Trend Lens signup.',
+    badgeLabel: 'OTP Required',
+    badgeTone: '#0d9f6e',
+    details: [
+      { label: 'Verification code', value: otp },
+      { label: 'Expires in', value: `${expiresInMinutes} minutes` },
+      { label: 'Account email', value: to }
+    ],
+    closingHtml: `<p style="margin:0;">Hello ${escapeHtml(name)},</p>
+      <p style="margin:14px 0 0;">Enter this code on the signup screen to verify your email and activate your account.</p>
+      <p style="margin:14px 0 0;">If you did not start this signup, you can ignore this email.</p>`
+  });
+
+  await transporter.sendMail({
+    from: `"${config.fromName}" <${config.user}>`,
+    to,
+    subject: 'Your signup verification code',
+    html: shell.html,
+    text: `Hello ${name}, your Buyer Trend Lens verification code is ${otp}. It expires in ${expiresInMinutes} minutes.`,
+    attachments: shell.attachments
+  });
+};
+
 module.exports = {
   sendContactEmail,
-  sendPaymentStatusEmail
+  sendPaymentStatusEmail,
+  sendSignupOtpEmail
 };

@@ -98,6 +98,9 @@ const timeZoneCountryMap = {
 const getCountryByCode = (countryCode) =>
   countryOptions.find((item) => item.code === String(countryCode || '').toUpperCase()) || fallbackCountry;
 
+const getCountryByName = (countryName) =>
+  countryOptions.find((item) => item.name.toLowerCase() === String(countryName || '').trim().toLowerCase()) || null;
+
 const getFlagUrl = (countryCode) => `https://flagcdn.com/24x18/${String(countryCode || '').toLowerCase()}.png`;
 
 const getBrowserCountry = () => {
@@ -138,6 +141,39 @@ const mapGoogleLoginError = (error) => {
   }
 
   return error?.message || 'Google sign-in failed.';
+};
+
+const splitPhoneNumber = (phoneNumber, countryName) => {
+  const explicitCountry = getCountryByName(countryName);
+
+  if (explicitCountry) {
+    const normalizedPhone = String(phoneNumber || '').trim();
+    const localNumber = normalizedPhone.startsWith(explicitCountry.dialCode)
+      ? normalizedPhone.slice(explicitCountry.dialCode.length).replace(/\D/g, '')
+      : normalizedPhone.replace(/\D/g, '');
+
+    return {
+      country: explicitCountry,
+      phoneNumber: localNumber
+    };
+  }
+
+  const normalizedPhone = String(phoneNumber || '').trim();
+  const matchedCountry = [...countryOptions]
+    .sort((firstOption, secondOption) => secondOption.dialCode.length - firstOption.dialCode.length)
+    .find((option) => normalizedPhone.startsWith(option.dialCode));
+
+  if (!matchedCountry) {
+    return {
+      country: fallbackCountry,
+      phoneNumber: normalizedPhone.replace(/\D/g, '')
+    };
+  }
+
+  return {
+    country: matchedCountry,
+    phoneNumber: normalizedPhone.slice(matchedCountry.dialCode.length).replace(/\D/g, '')
+  };
 };
 
 const SparkGrid = ({ signupMode = false }) => (
@@ -214,12 +250,12 @@ const ModeBackdrop = ({ mode }) => (
      
     <div
       className={`pointer-events-none absolute -right-10 top-24 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl transition-all duration-700 ${
-        mode === 'signup' ? 'scale-100 opacity-100' : 'scale-75 opacity-0'
+        mode !== 'login' ? 'scale-100 opacity-100' : 'scale-75 opacity-0'
       }`}
     />
     <div
       className={`pointer-events-none absolute bottom-10 left-8 h-20 w-20 rounded-[24px] border border-cyan-200/10 bg-cyan-300/[0.04] transition-all duration-700 ${
-        mode === 'signup' ? 'translate-y-0 rotate-6 opacity-100' : 'translate-y-6 rotate-12 opacity-0'
+        mode !== 'login' ? 'translate-y-0 rotate-6 opacity-100' : 'translate-y-6 rotate-12 opacity-0'
       }`}
     />
   </>
@@ -228,17 +264,30 @@ const ModeBackdrop = ({ mode }) => (
 const LoginPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, user, login, signup, googleLogin, loading } = useAuth();
+  const { isAuthenticated, user, login, startSignup, verifySignupOtp, googleLogin, completeGoogleSignup, loading } = useAuth();
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
   const [googleLoading, setGoogleLoading] = useState(false);
   const [signupStep, setSignupStep] = useState(0);
   const [countryMenuOpen, setCountryMenuOpen] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpEmail, setOtpEmail] = useState('');
+  const [pendingSignupPayload, setPendingSignupPayload] = useState(null);
+  const [googleSignupToken, setGoogleSignupToken] = useState('');
   const countryMenuRef = useRef(null);
 
   const destination = location.state?.from?.pathname || '/dashboard';
-  const activeSignupStep = signupSteps[signupStep];
+  const isGoogleSignup = mode === 'google-signup';
+  const isOtpStep = Boolean(otpEmail);
+  const activeSignupStep = isOtpStep
+    ? {
+        eyebrow: 'Verify',
+        title: 'Email verification',
+        description: `Enter the 6-digit code sent to ${otpEmail} to finish your signup.`
+      }
+    : signupSteps[signupStep];
 
   useDocumentMetadata({
     title: titleTag,
@@ -256,6 +305,22 @@ const LoginPage = () => {
       setSignupStep(0);
     }
   }, [mode]);
+
+  const resetSignupState = () => {
+    setOtpCode('');
+    setOtpEmail('');
+    setPendingSignupPayload(null);
+    setGoogleSignupToken('');
+    setInfoMessage('');
+  };
+
+  const switchMode = (nextMode) => {
+    setError('');
+    if (nextMode !== mode) {
+      resetSignupState();
+    }
+    setMode(nextMode);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -315,7 +380,40 @@ const LoginPage = () => {
 
   const onChange = (key, value) => {
     setError('');
+    setInfoMessage('');
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const buildSignupPayload = () => ({
+    ...form,
+    country: form.country || fallbackCountry.name,
+    preferredContactMethod: form.isWhatsAppNumber ? 'whatsapp' : 'email',
+    messagingHandle: form.isWhatsAppNumber ? `${form.countryCode} ${form.phoneNumber}`.trim() : '',
+    phoneNumber: `${form.countryCode} ${form.phoneNumber}`.trim()
+  });
+
+  const applyGoogleProfile = (profile) => {
+    const resolvedCountry = getCountryByName(profile?.country) || getBrowserCountry();
+    const parsedPhone = splitPhoneNumber(profile?.phoneNumber, profile?.country);
+    const selectedCountry = profile?.phoneNumber ? parsedPhone.country : resolvedCountry;
+
+    setForm((current) => ({
+      ...current,
+      name: profile?.name || current.name,
+      email: profile?.email || current.email,
+      password: '',
+      phoneNumber: parsedPhone.phoneNumber,
+      country: resolvedCountry.name,
+      countryCode: selectedCountry?.dialCode || resolvedCountry.dialCode,
+      countryIso: selectedCountry?.code || resolvedCountry.code,
+      companyName: profile?.companyName || '',
+      jobTitle: profile?.jobTitle || '',
+      useCase: profile?.useCase || '',
+      preferredContactMethod: profile?.preferredContactMethod || 'email',
+      messagingHandle: profile?.messagingHandle || '',
+      isWhatsAppNumber: profile?.preferredContactMethod === 'whatsapp',
+      termsAccepted: Boolean(profile?.termsAccepted)
+    }));
   };
 
   const signupValidationErrors = useMemo(
@@ -323,8 +421,8 @@ const LoginPage = () => {
       0: [
         !form.name.trim() && 'Full name is required.',
         !form.email.trim() && 'Email is required.',
-        !form.password.trim() && 'Password is required.',
-        form.password && form.password.length < 6 && 'Password must be at least 6 characters.'
+        !isGoogleSignup && !form.password.trim() && 'Password is required.',
+        !isGoogleSignup && form.password && form.password.length < 6 && 'Password must be at least 6 characters.'
       ].filter(Boolean),
       1: [
         !form.phoneNumber.trim() && 'Phone number is required.'
@@ -334,7 +432,7 @@ const LoginPage = () => {
         !form.termsAccepted && 'You must accept the terms to continue.'
       ].filter(Boolean)
     }),
-    [form]
+    [form, isGoogleSignup]
   );
 
   const moveToNextSignupStep = () => {
@@ -351,6 +449,7 @@ const LoginPage = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+    setInfoMessage('');
 
     try {
       if (mode === 'login') {
@@ -370,28 +469,80 @@ const LoginPage = () => {
         return;
       }
 
-      const signupPayload = {
-        ...form,
-        country: form.country || fallbackCountry.name,
-        preferredContactMethod: form.isWhatsAppNumber ? 'whatsapp' : 'email',
-        messagingHandle: form.isWhatsAppNumber ? `${form.countryCode} ${form.phoneNumber}`.trim() : '',
-        phoneNumber: `${form.countryCode} ${form.phoneNumber}`.trim()
-      };
+      const signupPayload = buildSignupPayload();
 
-      const response = await signup(signupPayload);
-      navigate(response.user.role === 'admin' ? '/admin' : destination, { replace: true });
+      if (isGoogleSignup) {
+        const response = await completeGoogleSignup({
+          signupToken: googleSignupToken,
+          ...signupPayload
+        });
+        navigate(response.user.role === 'admin' ? '/admin' : destination, { replace: true });
+        return;
+      }
+
+      const response = await startSignup(signupPayload);
+      setPendingSignupPayload(signupPayload);
+      setOtpEmail(response.email || signupPayload.email);
+      setOtpCode('');
+      setInfoMessage('Verification code sent. Enter the OTP to activate your account.');
     } catch (submitError) {
       setError(submitError.message);
     }
   };
 
+  const handleOtpSubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setInfoMessage('');
+
+    try {
+      const response = await verifySignupOtp({
+        email: otpEmail,
+        otp: otpCode
+      });
+      navigate(response.user.role === 'admin' ? '/admin' : destination, { replace: true });
+    } catch (verifyError) {
+      setError(verifyError.message);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!pendingSignupPayload) {
+      return;
+    }
+
+    setError('');
+    setInfoMessage('');
+
+    try {
+      const response = await startSignup(pendingSignupPayload);
+      setOtpEmail(response.email || pendingSignupPayload.email);
+      setOtpCode('');
+      setInfoMessage('A new verification code has been sent to your email.');
+    } catch (resendError) {
+      setError(resendError.message);
+    }
+  };
+
   const handleGoogleLogin = async () => {
     setError('');
+    setInfoMessage('');
     setGoogleLoading(true);
 
     try {
       const googleIdToken = await signInWithGooglePopup();
       const response = await googleLogin(googleIdToken);
+      if (response.profileCompletionRequired) {
+        applyGoogleProfile(response.profile || {});
+        setGoogleSignupToken(response.signupToken);
+        setOtpEmail('');
+        setPendingSignupPayload(null);
+        setOtpCode('');
+        setMode('google-signup');
+        setSignupStep(0);
+        setInfoMessage('Complete the remaining details to finish your Google signup.');
+        return;
+      }
       navigate(response.user.role === 'admin' ? '/admin' : destination, { replace: true });
     } catch (googleError) {
       setError(mapGoogleLoginError(googleError));
@@ -401,6 +552,50 @@ const LoginPage = () => {
   };
 
   const renderSignupStep = () => {
+    if (isOtpStep) {
+      return (
+        <div className="space-y-4">
+          <label>
+            <FieldLabel>Verification Code</FieldLabel>
+            <input
+              className={inputClassName}
+              value={otpCode}
+              onChange={(e) => {
+                setError('');
+                setInfoMessage('');
+                setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+              }}
+              placeholder="Enter 6-digit code"
+              inputMode="numeric"
+              maxLength={6}
+            />
+          </label>
+
+          <div className="rounded-2xl bg-white/[0.04] px-4 py-4 text-sm text-slate-300">
+            We sent a one-time verification code to <span className="font-semibold text-white">{otpEmail}</span>.
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleResendOtp}
+              disabled={loading}
+            >
+              Resend Code
+            </button>
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(90deg,_#19d59d,_#12c68e)] px-5 py-3 text-sm font-semibold text-[#05201d] shadow-[0_16px_34px_rgba(25,213,157,0.24)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={loading || otpCode.length !== 6}
+            >
+              {loading ? 'Verifying...' : 'Verify OTP'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (signupStep === 0) {
       return (
         <div className="grid gap-4 md:grid-cols-2">
@@ -416,18 +611,21 @@ const LoginPage = () => {
               className={inputClassName}
               value={form.email}
               onChange={(e) => onChange('email', e.target.value)}
+              disabled={isGoogleSignup}
             />
           </label>
 
-          <label className="md:col-span-2">
-            <FieldLabel>Password</FieldLabel>
-            <input
-              type="password"
-              className={inputClassName}
-              value={form.password}
-              onChange={(e) => onChange('password', e.target.value)}
-            />
-          </label>
+          {!isGoogleSignup ? (
+            <label className="md:col-span-2">
+              <FieldLabel>Password</FieldLabel>
+              <input
+                type="password"
+                className={inputClassName}
+                value={form.password}
+                onChange={(e) => onChange('password', e.target.value)}
+              />
+            </label>
+          ) : null}
         </div>
       );
     }
@@ -592,7 +790,7 @@ const LoginPage = () => {
 
         <div className="relative flex min-h-screen items-center justify-center px-4 py-6 lg:px-6">
           <div className="grid w-full max-w-7xl overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,_rgba(7,24,31,0.82),_rgba(4,19,28,0.76))] shadow-[0_40px_120px_rgba(0,0,0,0.36)] backdrop-blur md:rounded-[36px]">
-            {mode === 'signup' ? (
+            {mode !== 'login' ? (
               <section className="relative overflow-hidden p-6 text-white sm:p-8 md:p-10">
                 <SparkGrid signupMode />
                 <ModeBackdrop mode={mode} />
@@ -606,7 +804,9 @@ const LoginPage = () => {
                     <div className="mb-6 mt-6 rounded-[30px] bg-[#0b212b]/95 px-6 py-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)] md:mt-8 md:px-8 md:py-7">
                       <div className="max-w-3xl">
                         <p className="text-xs uppercase tracking-[0.34em] text-emerald-100/70">Secure Workspace</p>
-                        <h1 className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">Create your account</h1>
+                        <h1 className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
+                          {isGoogleSignup ? 'Complete your Google account' : 'Create your account'}
+                        </h1>
                         <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 md:text-base">{activeSignupStep.description}</p>
                       </div>
                     </div>
@@ -617,11 +817,10 @@ const LoginPage = () => {
                           key={item}
                           type="button"
                           onClick={() => {
-                            setError('');
-                            setMode(item);
+                            switchMode(item);
                           }}
                           className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-                            mode === item
+                            (item === 'signup' ? mode !== 'login' : mode === 'login')
                               ? 'bg-[linear-gradient(135deg,rgba(18,213,183,0.18),rgba(69,142,255,0.12))] text-white shadow-[0_10px_24px_rgba(18,213,183,0.12)]'
                               : 'text-slate-400'
                           }`}
@@ -637,8 +836,15 @@ const LoginPage = () => {
                         className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white/[0.05] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/[0.08]"
                         onClick={() => {
                           setError('');
+                          setInfoMessage('');
+                          if (isOtpStep) {
+                            setOtpCode('');
+                            setOtpEmail('');
+                            return;
+                          }
+
                           if (signupStep === 0) {
-                            setMode('login');
+                            switchMode('login');
                             return;
                           }
 
@@ -650,6 +856,7 @@ const LoginPage = () => {
                       </button>
                     </div>
 
+                    {!isOtpStep ? (
                     <div className="mb-6 rounded-[26px] bg-white/[0.03] p-4">
                       <div className="mb-4 flex items-center gap-2">
                         {signupSteps.map((step, index) => (
@@ -683,8 +890,9 @@ const LoginPage = () => {
                         ))}
                       </div>
                     </div>
+                    ) : null}
 
-                    <form className="space-y-4" onSubmit={handleSubmit}>
+                    <form className="space-y-4" onSubmit={isOtpStep ? handleOtpSubmit : handleSubmit}>
                       <div
                         className="overflow-hidden rounded-[30px] bg-[linear-gradient(180deg,rgba(18,38,48,0.96),rgba(9,26,36,0.92))] p-5 shadow-[0_26px_70px_rgba(16,185,129,0.10)] md:p-6"
                         style={{ boxShadow: '0 22px 60px rgba(6, 182, 212, 0.08), inset 0 1px 0 rgba(255,255,255,0.05)' }}
@@ -701,42 +909,60 @@ const LoginPage = () => {
                         </div>
                       </div>
 
+                      {infoMessage ? (
+                        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
+                          {infoMessage}
+                        </div>
+                      ) : null}
+
                       {error ? (
                         <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-200">
                           {error}
                         </div>
                       ) : null}
 
-                      <div className="flex gap-3">
-                        <button
-                          type="submit"
-                          className="ml-auto inline-flex min-w-[180px] items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(90deg,_#19d59d,_#12c68e)] px-5 py-3 text-sm font-semibold text-[#05201d] shadow-[0_16px_34px_rgba(25,213,157,0.24)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                          disabled={loading}
-                        >
-                          <span>{loading ? 'Please wait...' : signupStep < signupSteps.length - 1 ? 'Continue' : 'Create Account'}</span>
-                          {!loading ? (
-                            <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
-                              <path
-                                d="M4.75 10h9.19m0 0-3.22-3.22M13.94 10l-3.22 3.22"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="1.8"
-                              />
-                            </svg>
-                          ) : null}
-                        </button>
-                      </div>
+                      {!isOtpStep ? (
+                        <div className="flex gap-3">
+                          <button
+                            type="submit"
+                            className="ml-auto inline-flex min-w-[180px] items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(90deg,_#19d59d,_#12c68e)] px-5 py-3 text-sm font-semibold text-[#05201d] shadow-[0_16px_34px_rgba(25,213,157,0.24)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={loading}
+                          >
+                            <span>
+                              {loading
+                                ? 'Please wait...'
+                                : signupStep < signupSteps.length - 1
+                                ? 'Continue'
+                                : isGoogleSignup
+                                ? 'Finish Google Signup'
+                                : 'Create Account'}
+                            </span>
+                            {!loading ? (
+                              <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
+                                <path
+                                  d="M4.75 10h9.19m0 0-3.22-3.22M13.94 10l-3.22 3.22"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="1.8"
+                                />
+                              </svg>
+                            ) : null}
+                          </button>
+                        </div>
+                      ) : null}
                     </form>
 
-                    <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-[0.25em] text-slate-500">
-                      <span className="h-px flex-1 bg-white/10" />
-                      or
-                      <span className="h-px flex-1 bg-white/10" />
-                    </div>
+                    {!isOtpStep && !isGoogleSignup ? (
+                      <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-[0.25em] text-slate-500">
+                        <span className="h-px flex-1 bg-white/10" />
+                        or
+                        <span className="h-px flex-1 bg-white/10" />
+                      </div>
+                    ) : null}
 
-                    {hasFirebaseGoogleConfig ? (
+                    {!isOtpStep && !isGoogleSignup && hasFirebaseGoogleConfig ? (
                       <button
                         type="button"
                         className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
@@ -746,11 +972,11 @@ const LoginPage = () => {
                         <GoogleIcon />
                         {googleLoading ? 'Connecting to Google...' : 'Continue with Google'}
                       </button>
-                    ) : (
+                    ) : !isOtpStep && !isGoogleSignup ? (
                       <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
                         Google OAuth is disabled until Firebase web config is available.
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </section>
@@ -804,8 +1030,7 @@ const LoginPage = () => {
                           key={item}
                           type="button"
                           onClick={() => {
-                            setError('');
-                            setMode(item);
+                            switchMode(item);
                           }}
                           className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
                             mode === item
@@ -837,6 +1062,12 @@ const LoginPage = () => {
                           </label>
                         </div>
                       </div>
+
+                      {infoMessage ? (
+                        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-emerald-100">
+                          {infoMessage}
+                        </div>
+                      ) : null}
 
                       {error ? (
                         <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm leading-6 text-rose-200">

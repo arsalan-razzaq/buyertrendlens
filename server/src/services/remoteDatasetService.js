@@ -16,15 +16,44 @@ const REMOTE_FILTER_KEYS = [
 const REMOTE_DATASET_MAX_LIMIT = 100;
 const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 
-const getRemoteDatasetApiUrl = () => process.env.REMOTE_DATASET_API_URL?.trim();
-const getRemoteFilterOptionsApiUrl = () => {
-  const explicitUrl = process.env.REMOTE_DATASET_FILTERS_URL?.trim();
+const getDatasetConfig = (dataset = 'g2g') => {
+  const normalizedDataset = String(dataset || 'g2g').trim().toLowerCase();
+
+  if (normalizedDataset === 'eldorado') {
+    return {
+      dataset: 'eldorado',
+      enabled: isEnabled(process.env.ENABLE_REMOTE_DATASET_ELDORADO || process.env.ENABLE_REMOTE_DATASET),
+      apiUrl: process.env.REMOTE_DATASET_API_URL_ELDORADO?.trim() || '',
+      filtersUrl: process.env.REMOTE_DATASET_FILTERS_URL_ELDORADO?.trim() || '',
+      categoriesUrl: process.env.REMOTE_DATASET_CATEGORIES_URL_ELDORADO?.trim() || '',
+      productsUrl: process.env.REMOTE_PRODUCTS_API_URL_ELDORADO?.trim() || '',
+      apiKey: process.env.REMOTE_DATASET_API_KEY_ELDORADO?.trim() || process.env.REMOTE_DATASET_API_KEY?.trim() || '',
+      timeoutMs: Math.max(Number(process.env.REMOTE_DATASET_TIMEOUT_MS_ELDORADO || process.env.REMOTE_DATASET_TIMEOUT_MS) || 30000, 1000)
+    };
+  }
+
+  return {
+    dataset: 'g2g',
+    enabled: isEnabled(process.env.ENABLE_REMOTE_DATASET),
+    apiUrl: process.env.REMOTE_DATASET_API_URL?.trim() || '',
+    filtersUrl: process.env.REMOTE_DATASET_FILTERS_URL?.trim() || '',
+    categoriesUrl: process.env.REMOTE_DATASET_CATEGORIES_URL?.trim() || '',
+    productsUrl: process.env.REMOTE_PRODUCTS_API_URL?.trim() || '',
+    apiKey: process.env.REMOTE_DATASET_API_KEY?.trim() || '',
+    timeoutMs: Math.max(Number(process.env.REMOTE_DATASET_TIMEOUT_MS) || 30000, 1000)
+  };
+};
+
+const getRemoteDatasetApiUrl = (dataset = 'g2g') => getDatasetConfig(dataset).apiUrl;
+const getRemoteFilterOptionsApiUrl = (dataset = 'g2g') => {
+  const config = getDatasetConfig(dataset);
+  const explicitUrl = config.filtersUrl;
 
   if (explicitUrl) {
     return explicitUrl;
   }
 
-  const datasetUrl = getRemoteDatasetApiUrl();
+  const datasetUrl = config.apiUrl;
 
   if (!datasetUrl) {
     return '';
@@ -32,6 +61,16 @@ const getRemoteFilterOptionsApiUrl = () => {
 
   try {
     const url = new URL(datasetUrl);
+
+    if (dataset === 'eldorado') {
+      if (url.pathname.endsWith('/eldorado-products')) {
+        url.pathname = url.pathname.replace(/\/eldorado-products$/, '/eldorado-products/filter-options');
+        return url.toString();
+      }
+
+      url.pathname = `${url.pathname.replace(/\/$/, '')}/filter-options`;
+      return url.toString();
+    }
 
     if (url.pathname.endsWith('/dataset-marketplace')) {
       url.pathname = url.pathname.replace(/\/dataset-marketplace$/, '/filter-options');
@@ -50,14 +89,15 @@ const getRemoteFilterOptionsApiUrl = () => {
   }
 };
 
-const getRemoteCategoryOptionsApiUrl = () => {
-  const explicitUrl = process.env.REMOTE_DATASET_CATEGORIES_URL?.trim();
+const getRemoteCategoryOptionsApiUrl = (dataset = 'g2g') => {
+  const config = getDatasetConfig(dataset);
+  const explicitUrl = config.categoriesUrl;
 
   if (explicitUrl) {
     return explicitUrl;
   }
 
-  const filtersUrl = getRemoteFilterOptionsApiUrl();
+  const filtersUrl = getRemoteFilterOptionsApiUrl(dataset);
 
   if (filtersUrl) {
     try {
@@ -72,7 +112,7 @@ const getRemoteCategoryOptionsApiUrl = () => {
     }
   }
 
-  const datasetUrl = getRemoteDatasetApiUrl();
+  const datasetUrl = config.apiUrl;
 
   if (!datasetUrl) {
     return '';
@@ -98,14 +138,15 @@ const getRemoteCategoryOptionsApiUrl = () => {
   }
 };
 
-const getRemoteProductsApiUrl = () => {
-  const explicitUrl = process.env.REMOTE_PRODUCTS_API_URL?.trim();
+const getRemoteProductsApiUrl = (dataset = 'g2g') => {
+  const config = getDatasetConfig(dataset);
+  const explicitUrl = config.productsUrl;
 
   if (explicitUrl) {
     return explicitUrl;
   }
 
-  const datasetUrl = getRemoteDatasetApiUrl();
+  const datasetUrl = config.apiUrl;
 
   if (!datasetUrl) {
     return '';
@@ -113,6 +154,10 @@ const getRemoteProductsApiUrl = () => {
 
   try {
     const url = new URL(datasetUrl);
+
+    if (dataset === 'eldorado') {
+      return url.toString();
+    }
 
     if (url.pathname.endsWith('/dataset-marketplace')) {
       url.pathname = url.pathname.replace(/\/dataset-marketplace$/, '/products');
@@ -130,7 +175,10 @@ const getRemoteProductsApiUrl = () => {
   }
 };
 
-const isRemoteDatasetEnabled = () => isEnabled(process.env.ENABLE_REMOTE_DATASET) && Boolean(getRemoteDatasetApiUrl());
+const isRemoteDatasetEnabled = (dataset = 'g2g') => {
+  const config = getDatasetConfig(dataset);
+  return config.enabled && Boolean(config.apiUrl);
+};
 
 const buildRemoteQuery = (filters = {}, options = {}) => {
   const query = new URLSearchParams();
@@ -208,11 +256,122 @@ const formatRemoteProductUrl = (value) => {
   return `https://www.g2g.com/categories/${normalized.replace(/^\/+/, '')}`;
 };
 
-const fetchRemoteDataset = async ({ filters = {}, page = 1, limit = 10, paginate = true } = {}) => {
-  const apiUrl = getRemoteDatasetApiUrl();
+const formatEldoradoMarketplaceUrl = (value) => {
+  const normalized = String(value || '').trim();
+  return normalized || '';
+};
+
+const transformEldoradoRecord = (record = {}) => ({
+  _id: String(record.id ?? record.offer_id ?? ''),
+  title: String(record.offer_title || ''),
+  category: String(record.category || record.category_name || ''),
+  gameName: String(record.category_title || record.category_name || ''),
+  sellerName: String(record.seller_username || ''),
+  price: Number(record.price_usd_amount ?? record.price_amount ?? 0),
+  rating: Number(record.seller_verified ? 1 : 0),
+  userLevel: 0,
+  sellerRank: record.seller_verified ? 'Verified Seller' : '',
+  score: 0,
+  groupName: '',
+  ordersSold: 0,
+  createdAt: record.created_at || '',
+  updatedAt: record.updated_at || '',
+  offerId: String(record.offer_id || ''),
+  productName: String(record.offer_title || ''),
+  productUrl: formatEldoradoMarketplaceUrl(record.marketplace_url),
+  priceAmount: Number(record.price_amount ?? 0),
+  priceUsdAmount: Number(record.price_usd_amount ?? 0),
+  priceCurrency: String(record.price_currency || ''),
+  quantity: Number(record.quantity ?? 0),
+  deliveryTime: String(record.delivery_time || ''),
+  offerState: String(record.offer_state || ''),
+  sellerVerified: Boolean(record.seller_verified),
+  categoryName: String(record.category_name || ''),
+  categoryTitle: String(record.category_title || ''),
+  marketplaceUrl: formatEldoradoMarketplaceUrl(record.marketplace_url)
+});
+
+const buildEldoradoQuery = (filters = {}, page = 1) => {
+  const query = new URLSearchParams();
+  const mappings = [
+    ['search', 'title'],
+    ['category', 'category'],
+    ['gameName', 'game_name'],
+    ['sellerName', 'seller_name'],
+    ['priceMin', 'minPrice'],
+    ['priceMax', 'maxPrice']
+  ];
+
+  for (const [sourceKey, targetKey] of mappings) {
+    const value = String(filters[sourceKey] || '').trim();
+    if (value) {
+      query.set(targetKey, value);
+    }
+  }
+
+  if (filters.verifiedOnly === true || String(filters.verifiedOnly).toLowerCase() === 'true') {
+    query.set('verified_only', '1');
+  }
+
+  query.set('page', String(page));
+  return query;
+};
+
+const fetchRemoteDataset = async ({ dataset = 'g2g', filters = {}, page = 1, limit = 10, paginate = true } = {}) => {
+  if (dataset === 'eldorado') {
+    const config = getDatasetConfig(dataset);
+    const apiUrl = getRemoteDatasetApiUrl(dataset);
+
+    if (!apiUrl) {
+      throw new Error('ELDORADO remote dataset API URL is not configured.');
+    }
+
+    const url = new URL(apiUrl);
+    const query = buildEldoradoQuery(filters, page);
+    query.forEach((value, key) => url.searchParams.set(key, value));
+
+    const headers = {
+      Accept: 'application/json'
+    };
+
+    if (config.apiKey) {
+      headers['X-Dataset-Key'] = config.apiKey;
+    }
+
+    const response = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(config.timeoutMs)
+    });
+
+    const payload = await parseRemotePayload(response);
+
+    if (!response.ok) {
+      throw new Error(
+        payload.message ||
+          payload.error ||
+          `Remote Eldorado dataset request failed with status ${response.status}.`
+      );
+    }
+
+    const pagination = payload?.data || {};
+    const rawRecords = Array.isArray(pagination.data) ? pagination.data : [];
+    const total = Number(pagination.total) || rawRecords.length;
+    const perPage = Number(pagination.per_page) || limit || rawRecords.length || 1;
+
+    return {
+      records: rawRecords.map(transformEldoradoRecord),
+      total,
+      page: Number(pagination.current_page) || page,
+      limit: perPage,
+      totalPages: Math.max(Number(pagination.last_page) || Math.ceil(total / perPage), 1)
+    };
+  }
+
+  const config = getDatasetConfig(dataset);
+  const apiUrl = config.apiUrl;
 
   if (!apiUrl) {
-    throw new Error('REMOTE_DATASET_API_URL is not configured.');
+    throw new Error(`${config.dataset.toUpperCase()} remote dataset API URL is not configured.`);
   }
 
   const resolvedLimit = Math.min(Math.max(Number(limit) || 10, 1), REMOTE_DATASET_MAX_LIMIT);
@@ -224,14 +383,13 @@ const fetchRemoteDataset = async ({ filters = {}, page = 1, limit = 10, paginate
     Accept: 'application/json'
   };
 
-  if (process.env.REMOTE_DATASET_API_KEY) {
-    headers['X-Dataset-Key'] = process.env.REMOTE_DATASET_API_KEY;
+  if (config.apiKey) {
+    headers['X-Dataset-Key'] = config.apiKey;
   }
 
-  const timeoutMs = Math.max(Number(process.env.REMOTE_DATASET_TIMEOUT_MS) || 30000, 1000);
   const response = await fetch(url, {
     headers,
-    signal: AbortSignal.timeout(timeoutMs)
+    signal: AbortSignal.timeout(config.timeoutMs)
   });
 
   const payload = await parseRemotePayload(response);
@@ -258,18 +416,112 @@ const fetchRemoteDataset = async ({ filters = {}, page = 1, limit = 10, paginate
 };
 
 const fetchRemoteFilterOptions = async ({
+  dataset = 'g2g',
   category = '',
   gameName = '',
   sellerName = '',
   minSellerRank = '',
   categorySearch = '',
   gameSearch = '',
-  sellerSearch = ''
+  sellerSearch = '',
+  limit = 100
 } = {}) => {
-  const apiUrl = getRemoteFilterOptionsApiUrl();
+  if (dataset === 'eldorado') {
+    const config = getDatasetConfig(dataset);
+    const apiUrl = getRemoteFilterOptionsApiUrl(dataset);
+
+    if (!apiUrl) {
+      throw new Error('ELDORADO remote filters URL is not configured.');
+    }
+
+    const url = new URL(apiUrl);
+    const query = {
+      category: String(category || '').trim(),
+      game_name: String(gameName || '').trim(),
+      seller_name: String(sellerName || '').trim(),
+      category_search: String(categorySearch || '').trim(),
+      game_search: String(gameSearch || '').trim(),
+      seller_search: String(sellerSearch || '').trim(),
+      limit: String(limit || 100).trim()
+    };
+
+    for (const [key, value] of Object.entries(query)) {
+      if (value) {
+        url.searchParams.set(key, value);
+      }
+    }
+
+    const headers = {
+      Accept: 'application/json'
+    };
+
+    if (config.apiKey) {
+      headers['X-Dataset-Key'] = config.apiKey;
+    }
+
+    const response = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(config.timeoutMs)
+    });
+
+    const payload = await parseRemotePayload(response);
+
+    if (!response.ok) {
+      throw new Error(
+        payload.message ||
+          payload.error ||
+          `Remote Eldorado filter options request failed with status ${response.status}.`
+      );
+    }
+
+    const data = payload.data || {};
+    const normalizedCategorySearch = String(categorySearch || '').trim().toLowerCase();
+    const normalizedGameSearch = String(gameSearch || '').trim().toLowerCase();
+    const normalizedSellerSearch = String(sellerSearch || '').trim().toLowerCase();
+    const rawCategories = Array.isArray(data.categories) ? data.categories : [];
+    const selectedCategory = String(category || '').trim().toLowerCase();
+    const selectedGame = String(gameName || '').trim().toLowerCase();
+    const categories = (Array.isArray(data.categoryTypes) ? data.categoryTypes : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .filter((item) => !normalizedCategorySearch || item.toLowerCase().includes(normalizedCategorySearch))
+      .slice(0, limit);
+
+    const games = rawCategories
+      .map((item) => ({
+        category: String(item?.category || '').trim(),
+        name: String(item?.name || '').trim()
+      }))
+      .filter((item) => item.name)
+      .filter((item) => !selectedCategory || item.category.toLowerCase() === selectedCategory)
+      .filter((item) => !normalizedGameSearch || item.name.toLowerCase().includes(normalizedGameSearch))
+      .filter((item, index, list) => list.findIndex((candidate) => candidate.name.toLowerCase() === item.name.toLowerCase()) === index)
+      .slice(0, limit)
+      .map((item) => ({
+        name: item.name,
+        brand_ids: [],
+        brand_id: null,
+        total_success_order: 0
+      }));
+
+    const sellers = (Array.isArray(data.sellers) ? data.sellers : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .filter((item) => !normalizedSellerSearch || item.toLowerCase().includes(normalizedSellerSearch))
+      .slice(0, limit);
+
+    return {
+      categories,
+      games,
+      sellers
+    };
+  }
+
+  const config = getDatasetConfig(dataset);
+  const apiUrl = getRemoteFilterOptionsApiUrl(dataset);
 
   if (!apiUrl) {
-    throw new Error('REMOTE_DATASET_FILTERS_URL is not configured.');
+    throw new Error(`${config.dataset.toUpperCase()} remote filters URL is not configured.`);
   }
 
   const url = new URL(apiUrl);
@@ -280,7 +532,8 @@ const fetchRemoteFilterOptions = async ({
     minSellerRank: String(minSellerRank || '').trim(),
     category_search: String(categorySearch || '').trim(),
     game_search: String(gameSearch || '').trim(),
-    seller_search: String(sellerSearch || '').trim()
+    seller_search: String(sellerSearch || '').trim(),
+    limit: String(limit || 100).trim()
   };
 
   for (const [key, value] of Object.entries(query)) {
@@ -293,14 +546,13 @@ const fetchRemoteFilterOptions = async ({
     Accept: 'application/json'
   };
 
-  if (process.env.REMOTE_DATASET_API_KEY) {
-    headers['X-Dataset-Key'] = process.env.REMOTE_DATASET_API_KEY;
+  if (config.apiKey) {
+    headers['X-Dataset-Key'] = config.apiKey;
   }
 
-  const timeoutMs = Math.max(Number(process.env.REMOTE_DATASET_TIMEOUT_MS) || 30000, 1000);
   const response = await fetch(url, {
     headers,
-    signal: AbortSignal.timeout(timeoutMs)
+    signal: AbortSignal.timeout(config.timeoutMs)
   });
 
   const payload = await parseRemotePayload(response);
@@ -326,7 +578,7 @@ const fetchRemoteFilterOptions = async ({
         }
   );
 
-  const categoryOptionsUrl = getRemoteCategoryOptionsApiUrl();
+  const categoryOptionsUrl = getRemoteCategoryOptionsApiUrl(dataset);
 
   if (categoryOptionsUrl) {
     try {
@@ -337,10 +589,10 @@ const fetchRemoteFilterOptions = async ({
         categoryUrl.searchParams.set('type', selectedCategory);
       }
 
-      const categoryResponse = await fetch(categoryUrl, {
-        headers,
-        signal: AbortSignal.timeout(timeoutMs)
-      });
+        const categoryResponse = await fetch(categoryUrl, {
+          headers,
+          signal: AbortSignal.timeout(config.timeoutMs)
+        });
       const categoryPayload = await parseRemotePayload(categoryResponse);
 
       if (categoryResponse.ok) {
@@ -385,19 +637,20 @@ const fetchRemoteFilterOptions = async ({
   }
 
   return {
-    categories: Array.isArray(data.categories) ? data.categories : [],
-    games: normalizedGames,
-    sellers: Array.isArray(data.sellers) ? data.sellers : []
+    categories: Array.isArray(data.categories) ? data.categories.slice(0, limit) : [],
+    games: normalizedGames.slice(0, limit),
+    sellers: Array.isArray(data.sellers) ? data.sellers.slice(0, limit) : []
   };
 };
 
-const countRemoteDatasetRecords = async (filters = {}) => {
-  const payload = await fetchRemoteDataset({ filters, page: 1, limit: 1, paginate: true });
+const countRemoteDatasetRecords = async (filters = {}, dataset = 'g2g') => {
+  const payload = await fetchRemoteDataset({ dataset, filters, page: 1, limit: 1, paginate: true });
   return payload.total;
 };
 
-const fetchAllRemoteDatasetRecords = async (filters = {}) => {
+const fetchAllRemoteDatasetRecords = async (filters = {}, dataset = 'g2g') => {
   const initialPayload = await fetchRemoteDataset({
+    dataset,
     filters,
     page: 1,
     limit: REMOTE_DATASET_MAX_LIMIT,
@@ -419,6 +672,7 @@ const fetchAllRemoteDatasetRecords = async (filters = {}) => {
 
   for (let page = 2; page <= totalPages; page += 1) {
     const payload = await fetchRemoteDataset({
+      dataset,
       filters,
       page,
       limit: pageSize,
@@ -437,8 +691,9 @@ const fetchAllRemoteDatasetRecords = async (filters = {}) => {
   return records.slice(0, total);
 };
 
-const fetchRemoteProductsPage = async ({ gameName = '', sellerName = '', category = '', page = 1 } = {}) => {
-  const apiUrl = getRemoteProductsApiUrl();
+const fetchRemoteProductsPage = async ({ dataset = 'g2g', gameName = '', sellerName = '', category = '', page = 1 } = {}) => {
+  const config = getDatasetConfig(dataset);
+  const apiUrl = getRemoteProductsApiUrl(dataset);
 
   if (!apiUrl) {
     return { records: [], currentPage: 1, totalPages: 1, nextPageUrl: null };
@@ -462,14 +717,13 @@ const fetchRemoteProductsPage = async ({ gameName = '', sellerName = '', categor
     Accept: 'application/json'
   };
 
-  if (process.env.REMOTE_DATASET_API_KEY) {
-    headers['X-Dataset-Key'] = process.env.REMOTE_DATASET_API_KEY;
+  if (config.apiKey) {
+    headers['X-Dataset-Key'] = config.apiKey;
   }
 
-  const timeoutMs = Math.max(Number(process.env.REMOTE_DATASET_TIMEOUT_MS) || 30000, 1000);
   const response = await fetch(url, {
     headers,
-    signal: AbortSignal.timeout(timeoutMs)
+    signal: AbortSignal.timeout(config.timeoutMs)
   });
 
   const payload = await parseRemotePayload(response);
@@ -525,7 +779,11 @@ const mergeNormalizedAndRawProduct = (record, rawProduct) => {
   };
 };
 
-const enrichRemoteDatasetRecordsForExport = async (records = []) => {
+const enrichRemoteDatasetRecordsForExport = async (records = [], dataset = 'g2g') => {
+  if (dataset === 'eldorado') {
+    return records;
+  }
+
   if (!Array.isArray(records) || !records.length) {
     return [];
   }
@@ -571,6 +829,7 @@ const enrichRemoteDatasetRecordsForExport = async (records = []) => {
 
     do {
       const payload = await fetchRemoteProductsPage({
+        dataset,
         gameName: group.gameName,
         sellerName: group.sellerName,
         category: group.category,
