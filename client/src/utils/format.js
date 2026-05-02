@@ -17,6 +17,18 @@ export const formatDate = (value) =>
     minute: '2-digit'
   });
 
+export const formatLocalDateTime = (value, options = {}) => {
+  if (!value) {
+    return 'Not available';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    ...options
+  }).format(new Date(value));
+};
+
 export const formatCurrency = (value = 0) =>
   new Intl.NumberFormat(undefined, {
     style: 'currency',

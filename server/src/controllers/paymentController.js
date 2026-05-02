@@ -2,6 +2,8 @@ const Payment = require('../models/Payment');
 const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const TronWeb = require('tronweb');
+const { emitToAdmins, emitToUser } = require('../services/socketService');
+const { createAdminNotifications, createUserNotification } = require('../services/notificationService');
 const {
   createPaymentReference,
   calculateCoinsFromAmount,
@@ -51,6 +53,76 @@ const notifyPaymentDecision = async ({ user, payment, status }) => {
   });
 
   return true;
+};
+
+const serialize = (value) => (typeof value?.toObject === 'function' ? value.toObject() : value);
+
+const buildResolutionMessage = ({ payment, status }) =>
+  status === 'approved'
+    ? `Payment ${payment.reference} was approved and ${Number(payment.coins || 0).toFixed(2)} coins were credited.`
+    : `Payment ${payment.reference} was rejected by admin review.`;
+
+const publishPaymentSubmitted = async (payment) => {
+  try {
+    const populatedPayment = await payment.populate('userId', 'email name');
+    const requester = populatedPayment.userId?.name || populatedPayment.userId?.email || 'A user';
+
+    await createAdminNotifications({
+      title: 'New payment request',
+      message: `${requester} submitted ${Number(payment.amount || 0).toFixed(2)} USDT for review.`,
+      type: 'payment_request',
+      actionUrl: '/admin/payments',
+      data: {
+        paymentId: String(payment._id),
+        reference: payment.reference,
+        status: payment.status
+      }
+    });
+
+    emitToAdmins('payment:submitted', {
+      payment: serialize(populatedPayment)
+    });
+  } catch (error) {
+    console.error('Payment submit notification failed:', error.message);
+  }
+};
+
+const publishPaymentResolution = async ({ payment, user, status, balance }) => {
+  if (!user?._id) {
+    return;
+  }
+
+  try {
+    const message = buildResolutionMessage({ payment, status });
+
+    await createUserNotification({
+      userId: user._id,
+      title: status === 'approved' ? 'Payment approved' : 'Payment rejected',
+      message,
+      type: status === 'approved' ? 'payment_approved' : 'payment_rejected',
+      actionUrl: '/wallet',
+      data: {
+        paymentId: String(payment._id),
+        reference: payment.reference,
+        status
+      }
+    });
+
+    emitToUser(user._id, 'payment:status-updated', {
+      payment: serialize(payment),
+      status,
+      balance,
+      message
+    });
+
+    emitToAdmins('payment:resolved', {
+      paymentId: String(payment._id),
+      status,
+      payment: serialize(payment)
+    });
+  } catch (error) {
+    console.error('Payment resolution notification failed:', error.message);
+  }
 };
 
 const getMyPayments = asyncHandler(async (req, res) => {
@@ -201,6 +273,13 @@ const getBinancePayStatus = asyncHandler(async (req, res) => {
         channel: statusResponse.paymentInfo?.channel || undefined,
         network: 'BINANCE-PAY'
       }
+    });
+
+    await publishPaymentResolution({
+      payment: approvedPayment,
+      user,
+      status: 'approved',
+      balance: user.coins
     });
 
     return res.json({
@@ -369,6 +448,13 @@ const verifyBinanceDeposit = asyncHandler(async (req, res) => {
     }
   });
 
+  await publishPaymentResolution({
+    payment: approvedPayment,
+    user,
+    status: 'approved',
+    balance: user.coins
+  });
+
   res.json({
     message: 'Binance deposit verified and coins credited.',
     payment: approvedPayment,
@@ -449,6 +535,8 @@ const submitPaymentProof = asyncHandler(async (req, res) => {
   payment.txHash = req.body.txHash || payment.txHash;
   await payment.save();
 
+  await publishPaymentSubmitted(payment);
+
   res.json({
     message: 'Payment proof submitted',
     payment
@@ -480,6 +568,13 @@ const approvePayment = asyncHandler(async (req, res) => {
       network: payment.network,
       txHash: payment.txHash || undefined
     }
+  });
+
+  await publishPaymentResolution({
+    payment: approvedPayment,
+    user: updatedUser,
+    status: 'approved',
+    balance: updatedUser.coins
   });
 
   let notificationSent = false;
@@ -604,6 +699,13 @@ const verifyTronPayment = asyncHandler(async (req, res) => {
     }
   });
 
+  await publishPaymentResolution({
+    payment: approvedPayment,
+    user,
+    status: 'approved',
+    balance: user.coins
+  });
+
   res.json({
     message: 'TRON payment verified and coins added automatically.',
     payment: approvedPayment,
@@ -641,6 +743,13 @@ const rejectPayment = asyncHandler(async (req, res) => {
   } catch (error) {
     console.error('Payment rejection email failed:', error.message);
   }
+
+  await publishPaymentResolution({
+    payment,
+    user: paymentUser,
+    status: 'rejected',
+    balance: paymentUser?.coins
+  });
 
   res.json({
     message: notificationSent

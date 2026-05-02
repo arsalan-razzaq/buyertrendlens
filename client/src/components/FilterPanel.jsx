@@ -1,14 +1,21 @@
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { dataHttp, getErrorMessage } from '../api/http';
 
-const textFields = [
-  { key: 'search', label: 'Search by Title', placeholder: 'Account title or keyword' },
+const OPTION_FETCH_DEBOUNCE_MS = 180;
+const OPTION_RESULT_LIMIT = 80;
+
+const g2gTextFields = [
   { key: 'priceMin', label: 'Min Price', placeholder: '0' },
   { key: 'priceMax', label: 'Max Price', placeholder: '100' },
   { key: 'rating', label: 'Minimum Rating', placeholder: '4.5' },
   { key: 'userLevel', label: 'Minimum User Level', placeholder: '50' },
   { key: 'score', label: 'Minimum Score', placeholder: '80' },
   { key: 'ordersSold', label: 'Minimum Orders Sold', placeholder: '250' }
+];
+
+const eldoradoTextFields = [
+  { key: 'priceMin', label: 'Min Price', placeholder: '0' },
+  { key: 'priceMax', label: 'Max Price', placeholder: '100' }
 ];
 
 const SELLER_RANK_OPTIONS = [
@@ -29,24 +36,31 @@ const ChevronIcon = () => (
 const SearchableSelect = memo(function SearchableSelect({
   label,
   value,
-  options,
   onChange,
   placeholder,
   searchPlaceholder,
   emptyLabel,
   loadingLabel,
+  loadOptions,
+  queryKey,
   disabled = false
 }) {
   const containerRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const [options, setOptions] = useState(value ? [value] : []);
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [optionsError, setOptionsError] = useState('');
+  const [optionsReady, setOptionsReady] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setSearchQuery('');
+      setOptionsError('');
+      setOptionsReady(false);
     }
-  }, [open, value]);
+  }, [open]);
 
   useEffect(() => {
     const handlePointerDown = (event) => {
@@ -56,21 +70,64 @@ const SearchableSelect = memo(function SearchableSelect({
     };
 
     document.addEventListener('mousedown', handlePointerDown);
-
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
     };
   }, []);
 
-  const filteredOptions = useMemo(() => {
-    const normalizedQuery = deferredSearchQuery.trim().toLowerCase();
-
-    if (!normalizedQuery) {
-      return options;
+  useEffect(() => {
+    if (!value) {
+      return;
     }
 
-    return options.filter((option) => option.toLowerCase().includes(normalizedQuery));
-  }, [deferredSearchQuery, options]);
+    setOptions((current) => (current.includes(value) ? current : [value, ...current]));
+  }, [value]);
+
+  useEffect(() => {
+    setOptions(value ? [value] : []);
+    setOptionsError('');
+    setOptionsReady(false);
+  }, [queryKey, value]);
+
+  useEffect(() => {
+    if (!open || disabled) {
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setOptions(value ? [value] : []);
+      setOptionsLoading(true);
+      setOptionsError('');
+      setOptionsReady(false);
+
+      try {
+        const nextOptions = await loadOptions(deferredSearchQuery);
+
+        if (!active) {
+          return;
+        }
+
+        setOptions(value && !nextOptions.includes(value) ? [value, ...nextOptions] : nextOptions);
+        setOptionsReady(true);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setOptionsError(getErrorMessage(error));
+      } finally {
+        if (active) {
+          setOptionsLoading(false);
+        }
+      }
+    }, OPTION_FETCH_DEBOUNCE_MS);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [deferredSearchQuery, disabled, loadOptions, open, queryKey, value]);
 
   return (
     <label className={open ? 'relative z-40' : 'relative'}>
@@ -96,6 +153,12 @@ const SearchableSelect = memo(function SearchableSelect({
               autoFocus
             />
 
+            {optionsError ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-700">
+                {optionsError}
+              </div>
+            ) : null}
+
             <div className="mt-3 max-h-64 overflow-y-auto rounded-xl border border-slate-100">
               <button
                 type="button"
@@ -108,26 +171,24 @@ const SearchableSelect = memo(function SearchableSelect({
                 Clear selection
               </button>
 
-              {disabled ? (
+              {optionsLoading || !optionsReady ? (
                 <div className="px-3 py-3 text-sm text-slate-400">{loadingLabel}</div>
-              ) : filteredOptions.length ? (
-                <>
-                  {filteredOptions.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      className={`flex w-full items-center px-3 py-2.5 text-left text-sm transition ${
-                        option === value ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
-                      }`}
-                      onClick={() => {
-                        onChange(option);
-                        setOpen(false);
-                      }}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </>
+              ) : options.length ? (
+                options.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`flex w-full items-center px-3 py-2.5 text-left text-sm transition ${
+                      option === value ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+                    }`}
+                    onClick={() => {
+                      onChange(option);
+                      setOpen(false);
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))
               ) : (
                 <div className="px-3 py-3 text-sm text-slate-400">{emptyLabel}</div>
               )}
@@ -139,98 +200,75 @@ const SearchableSelect = memo(function SearchableSelect({
   );
 });
 
-const FilterPanel = ({ filters, onChange, loading }) => {
-  const [options, setOptions] = useState({ categories: [], games: [], sellers: [] });
-  const [optionsLoading, setOptionsLoading] = useState(true);
-  const [optionsError, setOptionsError] = useState('');
+const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
   const optionsCacheRef = useRef(new Map());
+  const isEldorado = dataset === 'eldorado';
 
   useEffect(() => {
-    let active = true;
+    optionsCacheRef.current.clear();
+  }, [dataset, filters.category, filters.gameName, filters.minSellerRank]);
 
-    const loadOptions = async () => {
-      setOptionsLoading(true);
-
-      const cacheKey = JSON.stringify({
-        category: filters.category || '',
-        gameName: filters.gameName || '',
-        sellerName: filters.sellerName || '',
-        minSellerRank: filters.minSellerRank || ''
-      });
-
-      const cached = optionsCacheRef.current.get(cacheKey);
-      if (cached) {
-        setOptions(cached);
-        setOptionsError('');
-        setOptionsLoading(false);
-        return;
-      }
-
-      try {
-        const { data } = await dataHttp.get('/filter-options', {
-          params: {
-            category: filters.category,
-            gameName: filters.gameName,
-            sellerName: filters.sellerName,
-            minSellerRank: filters.minSellerRank
-          }
-        });
-
-        if (!active) {
-          return;
-        }
-
-        const nextOptions = {
-          categories: Array.isArray(data.categories) ? data.categories : [],
-          games: Array.isArray(data.games)
-            ? data.games
-                .map((game) => (typeof game === 'string' ? game : game.name))
-                .filter(Boolean)
-            : [],
-          sellers: Array.isArray(data.sellers) ? data.sellers : []
-        };
-
-        optionsCacheRef.current.set(cacheKey, nextOptions);
-        setOptions(nextOptions);
-        setOptionsError('');
-      } catch (error) {
-        if (!active) {
-          return;
-        }
-
-        setOptions({ categories: [], games: [], sellers: [] });
-        setOptionsError(getErrorMessage(error));
-      } finally {
-        if (active) {
-          setOptionsLoading(false);
-        }
-      }
+  const fetchOptionList = useCallback(async (field, searchQuery = '') => {
+    const params = {
+      dataset,
+      limit: OPTION_RESULT_LIMIT,
+      category: filters.category || '',
+      gameName: filters.gameName || '',
+      sellerName: filters.sellerName || '',
+      minSellerRank: filters.minSellerRank || ''
     };
 
-    loadOptions();
-
-    return () => {
-      active = false;
-    };
-  }, [filters.category, filters.gameName, filters.sellerName, filters.minSellerRank]);
-
-  useEffect(() => {
-    if (filters.category && !options.categories.includes(filters.category)) {
-      onChange('category', '');
+    if (field === 'category') {
+      params.categorySearch = searchQuery;
+      params.gameName = '';
+      params.sellerName = '';
+    } else if (field === 'game') {
+      params.gameSearch = searchQuery;
+      params.sellerName = '';
+    } else if (field === 'seller') {
+      params.sellerSearch = searchQuery;
     }
-  }, [filters.category, onChange, options.categories]);
 
-  useEffect(() => {
-    if (filters.gameName && !options.games.includes(filters.gameName)) {
-      onChange('gameName', '');
+    const cacheKey = JSON.stringify({ field, ...params });
+    const cached = optionsCacheRef.current.get(cacheKey);
+    if (cached) {
+      return cached;
     }
-  }, [filters.gameName, onChange, options.games]);
 
-  useEffect(() => {
-    if (filters.sellerName && !options.sellers.includes(filters.sellerName)) {
-      onChange('sellerName', '');
+    const { data } = await dataHttp.get('/filter-options', { params });
+    let resolvedOptions;
+
+    if (field === 'category') {
+      resolvedOptions = Array.isArray(data.categories) ? data.categories : [];
+    } else if (field === 'game') {
+      resolvedOptions = Array.isArray(data.games)
+        ? data.games.map((game) => (typeof game === 'string' ? game : game.name)).filter(Boolean)
+        : [];
+    } else {
+      resolvedOptions = Array.isArray(data.sellers) ? data.sellers : [];
     }
-  }, [filters.sellerName, onChange, options.sellers]);
+
+    optionsCacheRef.current.set(cacheKey, resolvedOptions);
+    return resolvedOptions;
+  }, [dataset, filters.category, filters.gameName, filters.minSellerRank, filters.sellerName]);
+
+  const categoryQueryKey = JSON.stringify({
+    dataset,
+    minSellerRank: filters.minSellerRank || ''
+  });
+
+  const gameQueryKey = JSON.stringify({
+    dataset,
+    category: filters.category || '',
+    minSellerRank: filters.minSellerRank || ''
+  });
+
+  const sellerQueryKey = JSON.stringify({
+    dataset,
+    category: filters.category || '',
+    gameName: filters.gameName || '',
+    minSellerRank: filters.minSellerRank || ''
+  });
 
   return (
     <div className="panel relative z-20 p-4 sm:p-5">
@@ -238,91 +276,105 @@ const FilterPanel = ({ filters, onChange, loading }) => {
         <div>
           <h2 className="panel-title">Dataset Filters</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Slice the dataset before exporting rows. Changes apply automatically as you type or select.
+            {isEldorado
+              ? 'Eldorado filters are now mapped to the dedicated Eldorado backend on the VPS.'
+              : 'Slice the dataset before exporting rows. Changes apply automatically as you type or select.'}
           </p>
         </div>
       </div>
 
-      {optionsError ? (
-        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          {optionsError}
-        </div>
-      ) : null}
-
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <label>
-          <span className="label">Search by Title</span>
+          <span className="label">{isEldorado ? 'Search by Offer Title' : 'Search by Title'}</span>
           <input
             className="input"
-            placeholder="Account title or keyword"
+            placeholder={isEldorado ? 'Offer title or keyword' : 'Account title or keyword'}
             value={filters.search}
             onChange={(event) => onChange('search', event.target.value)}
           />
         </label>
 
         <SearchableSelect
-          label="Category"
+          label={isEldorado ? 'Category Type' : 'Category'}
           value={filters.category}
-          options={options.categories}
           onChange={(nextValue) => {
             onChange('category', nextValue);
             onChange('gameName', '');
             onChange('sellerName', '');
           }}
-          placeholder="Select Category"
-          searchPlaceholder="Search category..."
+          loadOptions={(searchQuery) => fetchOptionList('category', searchQuery)}
+          queryKey={categoryQueryKey}
+          placeholder={isEldorado ? 'Select Category Type' : 'Select Category'}
+          searchPlaceholder={isEldorado ? 'Search category type...' : 'Search category...'}
           emptyLabel="No categories found."
           loadingLabel="Loading categories..."
-          disabled={optionsLoading}
+          disabled={loading}
         />
 
         <SearchableSelect
           label="Game Name"
           value={filters.gameName}
-          options={options.games}
           onChange={(nextValue) => {
             onChange('gameName', nextValue);
             onChange('sellerName', '');
           }}
+          loadOptions={(searchQuery) => fetchOptionList('game', searchQuery)}
+          queryKey={gameQueryKey}
           placeholder="Select Game"
           searchPlaceholder="Search game..."
           emptyLabel="No games found."
           loadingLabel="Loading games..."
-          disabled={optionsLoading}
+          disabled={loading}
         />
 
-        <label>
-          <span className="label">Seller Rank</span>
-          <select
-            className="input"
-            value={filters.minSellerRank}
-            onChange={(event) => {
-              onChange('minSellerRank', event.target.value);
-              onChange('sellerName', '');
-            }}
-          >
-            <option value="">Select Rank</option>
-            {SELLER_RANK_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!isEldorado ? (
+          <label>
+            <span className="label">Seller Rank</span>
+            <select
+              className="input"
+              value={filters.minSellerRank}
+              onChange={(event) => {
+                onChange('minSellerRank', event.target.value);
+                onChange('sellerName', '');
+              }}
+            >
+              <option value="">Select Rank</option>
+              {SELLER_RANK_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <label className="flex items-end">
+            <span className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(filters.verifiedOnly)}
+                onChange={(event) => onChange('verifiedOnly', event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Verified sellers only
+            </span>
+          </label>
+        )}
 
         <SearchableSelect
+          key={`seller-${sellerQueryKey}`}
           label="Seller Name"
           value={filters.sellerName}
-          options={options.sellers}
           onChange={(nextValue) => onChange('sellerName', nextValue)}
+          loadOptions={(searchQuery) => fetchOptionList('seller', searchQuery)}
+          queryKey={sellerQueryKey}
           placeholder="Select Seller"
           searchPlaceholder="Search seller..."
           emptyLabel="No sellers found."
           loadingLabel="Loading sellers..."
-          disabled={optionsLoading}
+          disabled={loading}
         />
 
-        {textFields.filter((field) => !['search', 'ordersSold'].includes(field.key)).map((field) => (
+        {(isEldorado ? eldoradoTextFields : g2gTextFields).map((field) => (
           <label key={field.key}>
             <span className="label">{field.label}</span>
             <input
@@ -333,29 +385,6 @@ const FilterPanel = ({ filters, onChange, loading }) => {
             />
           </label>
         ))}
-
-        {/* <label>
-          <span className="label">Group</span>
-          <select
-            className="input"
-            value={filters.group}
-            onChange={(event) => onChange('group', event.target.value)}
-          >
-            <option value="">Select Group</option>
-            <option value="1">Yes</option>
-            <option value="0">No</option>
-          </select>
-        </label> */}
-
-        <label>
-          <span className="label">Minimum Orders Sold</span>
-          <input
-            className="input"
-            placeholder="250"
-            value={filters.ordersSold}
-            onChange={(event) => onChange('ordersSold', event.target.value)}
-          />
-        </label>
       </div>
     </div>
   );

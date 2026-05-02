@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoadingScreen from './components/LoadingScreen';
 import DashboardLayout from './layouts/DashboardLayout';
@@ -11,6 +12,7 @@ import DashboardPage from './pages/DashboardPage';
 import WalletPage from './pages/WalletPage';
 import AdminPage from './pages/AdminPage';
 import G2gpage from './pages/G2gpage';
+import EldoradoPage from './pages/EldoradoPage';
 import SupportPage from './pages/SupportPage';
 
 const App = () => {
@@ -22,28 +24,32 @@ const App = () => {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={user ? <Navigate to={userHomePath} replace /> : <HomePage />} />
-      <Route path="/contact" element={<ContactPage />} />
-      <Route path="/login" element={user ? <Navigate to={userHomePath} replace /> : <LoginPage />} />
-      <Route element={<ProtectedRoute allowRoles={['user']} redirectTo="/admin" />}>
-        <Route element={<DashboardLayout />}>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/wallet" element={<WalletPage />} />
-          <Route path="/g2g" element={<G2gpage />} />
-          <Route path="/support" element={<SupportPage />} />
+    <>
+      <Toaster richColors position="top-right" />
+      <Routes>
+        <Route path="/" element={user ? <Navigate to={userHomePath} replace /> : <HomePage />} />
+        <Route path="/contact" element={<ContactPage />} />
+        <Route path="/login" element={user ? <Navigate to={userHomePath} replace /> : <LoginPage />} />
+        <Route element={<ProtectedRoute allowRoles={['user']} redirectTo="/admin" />}>
+          <Route element={<DashboardLayout />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/wallet" element={<WalletPage />} />
+            <Route path="/g2g" element={<G2gpage />} />
+            <Route path="/eldorado" element={<EldoradoPage />} />
+            <Route path="/support" element={<SupportPage />} />
+          </Route>
         </Route>
-      </Route>
-      <Route element={<ProtectedRoute allowRoles={['admin']} />}>
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<AdminPage />} />
-          <Route path="users" element={<AdminPage />} />
-          <Route path="payments" element={<AdminPage />} />
-          <Route path="settings" element={<Navigate to="/admin" replace />} />
+        <Route element={<ProtectedRoute allowRoles={['admin']} />}>
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<AdminPage />} />
+            <Route path="users" element={<AdminPage />} />
+            <Route path="payments" element={<AdminPage />} />
+            <Route path="settings" element={<Navigate to="/admin" replace />} />
+          </Route>
         </Route>
-      </Route>
-      <Route path="*" element={<Navigate to={user ? userHomePath : '/'} replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to={user ? userHomePath : '/'} replace />} />
+      </Routes>
+    </>
   );
 };
 

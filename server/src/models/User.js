@@ -24,6 +24,55 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    phoneNumber: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    country: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    companyName: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    jobTitle: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    useCase: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    preferredContactMethod: {
+      type: String,
+      enum: ['email', 'whatsapp', 'telegram', ''],
+      default: ''
+    },
+    messagingHandle: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    termsAcceptedAt: {
+      type: Date,
+      default: null
+    },
+    signupIp: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    lastKnownIp: {
+      type: String,
+      trim: true,
+      default: ''
+    },
     coins: {
       type: Number,
       default: 1000,
@@ -42,6 +91,10 @@ const userSchema = new mongoose.Schema(
 
 userSchema.pre('save', async function savePassword(next) {
   if (!this.isModified('password') || !this.password) {
+    return next();
+  }
+
+  if (typeof this.password === 'string' && this.password.startsWith('$2')) {
     return next();
   }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import http, { getErrorMessage } from '../api/http';
+import { useNotifications } from '../hooks/useNotifications';
 import { formatCoins, formatDate } from '../utils/format';
 
 const panelClass = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
@@ -49,6 +50,7 @@ const getPaymentMethodLabel = (payment) => {
 const AdminPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { socket } = useNotifications();
   const [users, setUsers] = useState([]);
   const [payments, setPayments] = useState([]);
   const [adjustments, setAdjustments] = useState({});
@@ -101,6 +103,42 @@ const AdminPage = () => {
   useEffect(() => {
     fetchAdminData();
   }, []);
+
+  useEffect(() => {
+    if (!socket) {
+      return undefined;
+    }
+
+    const handlePaymentSubmitted = ({ payment }) => {
+      if (!payment) {
+        return;
+      }
+
+      setPayments((current) => {
+        const next = [payment, ...current.filter((item) => item._id !== payment._id)];
+        next.sort((firstPayment, secondPayment) => new Date(secondPayment.createdAt) - new Date(firstPayment.createdAt));
+        return next;
+      });
+      setMessage(`New payment request received: ${payment.reference}.`);
+      setError('');
+    };
+
+    const handlePaymentResolved = ({ paymentId }) => {
+      if (!paymentId) {
+        return;
+      }
+
+      setPayments((current) => current.filter((payment) => payment._id !== paymentId));
+    };
+
+    socket.on('payment:submitted', handlePaymentSubmitted);
+    socket.on('payment:resolved', handlePaymentResolved);
+
+    return () => {
+      socket.off('payment:submitted', handlePaymentSubmitted);
+      socket.off('payment:resolved', handlePaymentResolved);
+    };
+  }, [socket]);
 
   useEffect(() => {
     setUserPage(1);

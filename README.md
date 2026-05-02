@@ -47,6 +47,7 @@ Key backend variables:
 - `CLIENT_URL`
 - `CORS_ORIGINS` (optional comma-separated list for browser origins)
 - `REMOTE_DATASET_API_URL` (optional Laravel dataset source for filters/exports)
+- `REMOTE_DATASET_API_URL_ELDORADO` (optional second remote dataset source for Eldorado)
 - `GOOGLE_CLIENT_ID`
 - `BINANCE_RECEIVE_ADDRESS`
 - `COINS_PER_USDT`
@@ -73,7 +74,7 @@ Standalone Vue payment page runs on `http://localhost:5173/tron-payment.html`
 
 Backend runs on `http://localhost:5000`
 
-If `server/.env` includes `REMOTE_DATASET_API_URL`, the Node API keeps auth, wallet, and export billing locally but reads dataset rows from the remote Laravel endpoint instead of MongoDB for `/api/data`, export previews, and CSV exports.
+If `server/.env` includes `REMOTE_DATASET_API_URL`, the Node API keeps auth, wallet, and export billing locally but reads dataset rows from the remote Laravel endpoint instead of MongoDB for `/api/data`, export previews, and CSV exports. `REMOTE_DATASET_API_URL_ELDORADO` enables the same flow for the Eldorado sidebar item.
 
 ## VPS Deployment
 

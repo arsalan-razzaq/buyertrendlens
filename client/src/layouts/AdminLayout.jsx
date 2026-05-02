@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import AppLogo from '../components/AppLogo';
+import NotificationBell from '../components/NotificationBell';
 
 const DashboardIcon = () => (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -151,7 +152,10 @@ const AdminLayout = () => {
                   <p className="text-sm text-slate-500 xl:hidden">Admin Panel</p>
                 </div>
               </div>
-              <p className="text-base font-semibold text-slate-950 sm:text-lg">{user?.name}</p>
+              <div className="flex items-center gap-3">
+                <NotificationBell />
+                <p className="text-base font-semibold text-slate-950 sm:text-lg">{user?.name}</p>
+              </div>
             </div>
           </div>
           <div className="p-4 sm:p-6">

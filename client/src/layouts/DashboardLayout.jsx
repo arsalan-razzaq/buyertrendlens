@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { formatCoins } from '../utils/format';
 import AppLogo from '../components/AppLogo';
+import NotificationBell from '../components/NotificationBell';
 
 const DashboardIcon = () => (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -19,6 +20,15 @@ const DataIcon = () => (
     <path d="M10 19V5" />
     <path d="M16 19v-8" />
     <path d="M22 19V3" />
+  </svg>
+);
+
+const MarketplaceAltIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 7h16" />
+    <path d="M6 11h12" />
+    <path d="M8 15h8" />
+    <path d="M10 19h4" />
   </svg>
 );
 
@@ -71,6 +81,7 @@ const WalletChipIcon = () => (
 const userNavItems = [
   { label: 'Dashboard', path: '/dashboard', hint: 'Overview', icon: <DashboardIcon /> },
   { label: 'G2g', path: '/g2g', hint: 'Data', icon: <DataIcon /> },
+  { label: 'Eldorado', path: '/eldorado', hint: 'Data', icon: <MarketplaceAltIcon /> },
   { label: 'Wallet', path: '/wallet', hint: 'Connection', icon: <WalletIcon /> },
   { label: 'Support', path: '/support', hint: 'Help', icon: <SupportIcon /> }
 ];
@@ -214,13 +225,16 @@ const DashboardLayout = () => {
                 </div>
               </div>
               <div className="shrink-0">
-                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700 shadow-sm">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                    <WalletChipIcon />
-                  </span>
-                  <div className="leading-tight">
-                    <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">Wallet</p>
-                    <p className="text-xs font-semibold text-slate-950 sm:text-sm">{formatCoins(user?.coins)}</p>
+                <div className="flex items-center gap-3">
+                  <NotificationBell />
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700 shadow-sm">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                      <WalletChipIcon />
+                    </span>
+                    <div className="leading-tight">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">Wallet</p>
+                      <p className="text-xs font-semibold text-slate-950 sm:text-sm">{formatCoins(user?.coins)}</p>
+                    </div>
                   </div>
                 </div>
               </div>
