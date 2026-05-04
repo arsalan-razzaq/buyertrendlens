@@ -21,5 +21,11 @@ const dataRecordSchema = new mongoose.Schema(
 
 dataRecordSchema.index({ title: 'text', sellerName: 'text', gameName: 'text' });
 dataRecordSchema.index({ category: 1, groupName: 1, sellerRank: 1 });
+dataRecordSchema.index({ createdAt: -1 });
+dataRecordSchema.index({ category: 1, gameName: 1, sellerName: 1, sellerRank: 1, createdAt: -1 });
+dataRecordSchema.index({ sellerName: 1, createdAt: -1 });
+dataRecordSchema.index({ gameName: 1, createdAt: -1 });
+dataRecordSchema.index({ price: 1 });
+dataRecordSchema.index({ ordersSold: -1 });
 
 module.exports = mongoose.model('DataRecord', dataRecordSchema);

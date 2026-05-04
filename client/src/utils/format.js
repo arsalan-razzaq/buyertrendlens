@@ -50,6 +50,10 @@ export const downloadCsv = (filename, csv) => {
 
 export const downloadFile = (filename, content, mimeType = 'application/octet-stream') => {
   const blob = new Blob([content], { type: mimeType });
+  downloadBlob(filename, blob);
+};
+
+export const downloadBlob = (filename, blob) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -58,4 +62,26 @@ export const downloadFile = (filename, content, mimeType = 'application/octet-st
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+};
+
+export const formatTimeRemaining = (value) => {
+  if (!value) {
+    return 'Unavailable';
+  }
+
+  const diffMs = new Date(value).getTime() - Date.now();
+
+  if (diffMs <= 0) {
+    return 'Removing soon';
+  }
+
+  const totalHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+
+  if (days >= 1) {
+    return `${days} day${days === 1 ? '' : 's'}${hours ? ` ${hours}h` : ''}`;
+  }
+
+  return `${Math.max(totalHours, 1)} hour${Math.max(totalHours, 1) === 1 ? '' : 's'}`;
 };

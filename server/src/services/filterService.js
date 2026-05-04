@@ -1,6 +1,8 @@
 const NodeCache = require('node-cache');
 
 const filterCache = new NodeCache({ stdTTL: 30 });
+const filterOptionsCache = new NodeCache({ stdTTL: 300 });
+const publicStatsCache = new NodeCache({ stdTTL: 120 });
 
 const SELLER_RANK_MAP = {
   '1': 'Normal Seller',
@@ -121,12 +123,22 @@ const buildFilters = (input = {}) => {
 };
 
 const getCacheKey = (filters, page, limit) => JSON.stringify({ filters, page, limit });
+const getOptionsCacheKey = (payload) => JSON.stringify(payload);
+const clearQueryCaches = () => {
+  filterCache.flushAll();
+  filterOptionsCache.flushAll();
+  publicStatsCache.flushAll();
+};
 
 module.exports = {
   buildFilters,
   buildSellerRankMatch,
+  clearQueryCaches,
   filterCache,
+  filterOptionsCache,
   getCacheKey,
+  getOptionsCacheKey,
   getSellerRankThresholdLabels,
+  publicStatsCache,
   resolveSellerRankLabel
 };

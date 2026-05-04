@@ -1,18 +1,20 @@
 import { formatCoins } from '../utils/format';
 
-const formatCellValue = (value) => {
-  if (value === undefined || value === null || value === '') {
-    return '-';
-  }
+const ExportSpinner = () => (
+  <span className="inline-flex items-center gap-2">
+    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+    Preparing file...
+  </span>
+);
 
-  if (typeof value === 'number') {
-    return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  }
+const SummarySkeletonCard = () => (
+  <div className="rounded-2xl bg-slate-50 p-4">
+    <div className="skeleton-block h-3 w-24" />
+    <div className="mt-3 h-8 w-24 animate-pulse rounded-full bg-slate-200/80" />
+  </div>
+);
 
-  return String(value);
-};
-
-const DataTable = ({ total, estimatedCost, currentBalance, loading, canExport, onExport }) => (
+const DataTable = ({ total, estimatedCost, currentBalance, loading, exportLoading, canExport, onExport }) => (
   <div className="panel overflow-hidden print-hidden">
     <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
       <div>
@@ -21,24 +23,34 @@ const DataTable = ({ total, estimatedCost, currentBalance, loading, canExport, o
           Filtered row details are hidden here. Full matching product columns will be included only in the exported file.
         </p>
       </div>
-      <button type="button" className="button-primary w-full sm:w-auto" onClick={onExport} disabled={loading || !total || !canExport}>
-        {total ? `Export Data (${formatCoins(estimatedCost)})` : 'Export Data'}
+      <button type="button" className="button-primary w-full sm:w-auto" onClick={onExport} disabled={loading || exportLoading || !total || !canExport}>
+        {exportLoading ? <ExportSpinner /> : total ? `Export Data (${formatCoins(estimatedCost)})` : 'Export Data'}
       </button>
     </div>
 
     <div className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-3">
-      <div className="rounded-2xl bg-slate-50 p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-400">Filtered Rows</p>
-        <p className="mt-1 text-2xl font-semibold text-ink">{loading ? '...' : total}</p>
-      </div>
-      <div className="rounded-2xl bg-slate-50 p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-400">Estimated Export Cost</p>
-        <p className="mt-1 text-2xl font-semibold text-ink">{formatCoins(estimatedCost)}</p>
-      </div>
-      <div className="rounded-2xl bg-slate-50 p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-400">Current Balance</p>
-        <p className="mt-1 text-2xl font-semibold text-ink">{formatCoins(currentBalance)}</p>
-      </div>
+      {loading ? (
+        <>
+          <SummarySkeletonCard />
+          <SummarySkeletonCard />
+          <SummarySkeletonCard />
+        </>
+      ) : (
+        <>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Filtered Rows</p>
+            <p className="mt-1 text-2xl font-semibold text-ink">{total}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Estimated Export Cost</p>
+            <p className="mt-1 text-2xl font-semibold text-ink">{formatCoins(estimatedCost)}</p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Current Balance</p>
+            <p className="mt-1 text-2xl font-semibold text-ink">{formatCoins(currentBalance)}</p>
+          </div>
+        </>
+      )}
     </div>
 
     {!loading && total && !canExport ? (
@@ -50,12 +62,6 @@ const DataTable = ({ total, estimatedCost, currentBalance, loading, canExport, o
     {!loading && !total ? (
       <div className="border-t border-slate-100 px-4 py-4 text-sm text-slate-500 sm:px-5">
         No records found for the selected filters.
-      </div>
-    ) : null}
-
-    {loading ? (
-      <div className="border-t border-slate-100 px-4 py-8 text-sm text-slate-500 sm:px-5">
-        Calculating filtered export summary...
       </div>
     ) : null}
   </div>

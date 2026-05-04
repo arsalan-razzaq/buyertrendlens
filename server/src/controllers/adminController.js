@@ -5,7 +5,7 @@ const DataRecord = require('../models/DataRecord');
 const Transaction = require('../models/Transaction');
 const asyncHandler = require('../utils/asyncHandler');
 const parseCsvBuffer = require('../utils/csvImport');
-const { filterCache } = require('../services/filterService');
+const { clearQueryCaches } = require('../services/filterService');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -67,8 +67,8 @@ const importDataset = asyncHandler(async (req, res) => {
   }
 
   await DataRecord.insertMany(records);
-  // Imported rows change the table/export result set, so cached filter responses must be cleared.
-  filterCache.flushAll();
+  // Imported rows change the table/export result set, so query caches must be cleared.
+  clearQueryCaches();
 
   res.status(201).json({
     message: 'Dataset imported successfully',
