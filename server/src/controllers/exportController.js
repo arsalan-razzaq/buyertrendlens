@@ -5,7 +5,7 @@ const User = require('../models/User');
 const zlib = require('zlib');
 const asyncHandler = require('../utils/asyncHandler');
 const { buildFilters, clearQueryCaches } = require('../services/filterService');
-const { createCsv, createJson, createTsv } = require('../services/csvService');
+const { createCsv, createExcel, createJson, createTsv } = require('../services/csvService');
 const {
   isRemoteDatasetEnabled,
   countRemoteDatasetRecords,
@@ -16,7 +16,7 @@ const { normalizeDataset } = require('../utils/dataset');
 const { EXPORT_RETENTION_DAYS, buildExportExpiryDate } = require('../utils/exportRetention');
 
 const COIN_COST_PER_ROW = 1;
-const DEFAULT_EXPORT_FORMAT = 'csv';
+const DEFAULT_EXPORT_FORMAT = 'xls';
 const MAX_EXPORT_ROWS = Math.max(Number(process.env.MAX_EXPORT_ROWS) || 50000, 1000);
 const activeExportJobs = new Set();
 
@@ -26,6 +26,12 @@ const exportFormatConfig = {
     mimeType: 'text/csv;charset=utf-8;',
     createContent: createCsv,
     reason: 'CSV export'
+  },
+  xls: {
+    filenameExtension: 'xls',
+    mimeType: 'application/vnd.ms-excel;charset=utf-8;',
+    createContent: createExcel,
+    reason: 'Excel export'
   },
   json: {
     filenameExtension: 'json',

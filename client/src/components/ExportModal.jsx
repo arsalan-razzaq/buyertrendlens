@@ -51,14 +51,22 @@ const SummaryStat = ({ icon, label, value, tone }) => (
 );
 
 const exportFormats = [
-  { value: 'csv', label: 'CSV', description: 'Spreadsheet-friendly export.' },
+  { value: 'xls', label: 'Excel', description: 'Styled sheet with bold headers, centered cells, and clickable links.' },
+  { value: 'csv', label: 'CSV', description: 'Plain spreadsheet data without styling.' },
   { value: 'json', label: 'JSON', description: 'Structured raw dataset for APIs or scripts.' },
   { value: 'tsv', label: 'TSV', description: 'Tab-separated export for Excel-style tools.' }
 ];
 
+const ExportSpinner = () => (
+  <span
+    className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white"
+    aria-hidden="true"
+  />
+);
+
 const ExportModal = ({ preview, loading, onClose, onConfirm }) => {
   const [skipNextTime, setSkipNextTime] = useState(false);
-  const [format, setFormat] = useState('csv');
+  const [format, setFormat] = useState('xls');
   const remainingBalance =
     typeof preview?.remainingBalance === 'number'
       ? preview.remainingBalance
@@ -66,7 +74,7 @@ const ExportModal = ({ preview, loading, onClose, onConfirm }) => {
 
   useEffect(() => {
     setSkipNextTime(false);
-    setFormat(preview?.format || 'csv');
+    setFormat(preview?.format || 'xls');
   }, [preview]);
 
   if (!preview) {
@@ -144,6 +152,22 @@ const ExportModal = ({ preview, loading, onClose, onConfirm }) => {
           </div>
         ) : null}
 
+        {loading ? (
+          <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-800">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full bg-sky-100 text-sky-700">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700" />
+              </span>
+              <div>
+                <p className="font-semibold text-sky-900">Export tayar ho rahi hai</p>
+                <p className="mt-1 text-sky-700">
+                  Download isi popup se complete hoga. Background section me ab alag loading card nahi dikhaya jayega.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {preview.canExport ? (
           <label className="mt-5 flex items-start gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
             <input
@@ -157,16 +181,23 @@ const ExportModal = ({ preview, loading, onClose, onConfirm }) => {
         ) : null}
 
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
-          <button type="button" className="button-secondary w-full sm:w-auto" onClick={onClose}>
+          <button type="button" className="button-secondary w-full sm:w-auto" onClick={onClose} disabled={loading}>
             Cancel
           </button>
           <button
             type="button"
-            className="button-primary w-full sm:w-auto"
+            className="button-primary flex w-full items-center justify-center gap-2 sm:w-auto"
             onClick={() => onConfirm({ format, rememberChoice: skipNextTime })}
             disabled={loading || !preview.canExport}
           >
-            {loading ? 'Exporting...' : 'Confirm Export'}
+            {loading ? (
+              <>
+                <ExportSpinner />
+                Exporting...
+              </>
+            ) : (
+              'Confirm Export'
+            )}
           </button>
         </div>
       </div>

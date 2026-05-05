@@ -5,12 +5,12 @@ import ExportModal from '../components/ExportModal';
 import FilterPanel from '../components/FilterPanel';
 import StatCard from '../components/StatCard';
 import { useAuth } from '../hooks/useAuth';
-import { downloadBlob, formatCoins, formatDate, formatTimeRemaining } from '../utils/format';
+import { buildBrandedExportFilename, downloadBlob, downloadFile, formatCoins, formatDate, formatTimeRemaining } from '../utils/format';
 
 const COIN_COST_PER_ROW = 1;
 const EXPORT_CONFIRMATION_STORAGE_KEY = 'skip-export-confirmation';
 const FILTER_APPLY_DEBOUNCE_MS = 300;
-const SUPPORTED_EXPORT_FORMATS = new Set(['csv', 'json', 'tsv']);
+const SUPPORTED_EXPORT_FORMATS = new Set(['xls', 'csv', 'json', 'tsv']);
 
 const WalletIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -382,7 +382,7 @@ const DashboardPage = () => {
     setAppliedFilters(initialFilters);
   };
 
-  const openExportModal = async (format = 'csv') => {
+  const openExportModal = async (format = 'xls') => {
     setError('');
     try {
       await refreshProfile();
@@ -393,13 +393,18 @@ const DashboardPage = () => {
     }
   };
 
-  const handleExport = async ({ format = 'csv', rememberChoice = false } = {}) => {
+  const handleExport = async ({ format = 'xls', rememberChoice = false } = {}) => {
     setExportLoading(true);
     setError('');
 
     try {
       const { data } = await dataHttp.post('/export', { ...appliedFilters, format });
-      downloadFile(data.filename, data.content, data.mimeType);
+      const brandedFilename = buildBrandedExportFilename({
+        filename: data.filename,
+        dataset: 'g2g',
+        format: data.format || format
+      });
+      downloadFile(brandedFilename, data.content, data.mimeType);
       setMessage(`${String(data.format || format).toUpperCase()} export completed. ${formatCoins(data.cost)} deducted from your wallet.`);
       setPreview(null);
       if (rememberChoice) {
@@ -426,7 +431,12 @@ const DashboardPage = () => {
       });
       const disposition = String(response.headers['content-disposition'] || '');
       const filename = disposition.match(/filename="([^"]+)"/i)?.[1] || 'dataset-export';
-      downloadBlob(filename, response.data);
+      const brandedFilename = buildBrandedExportFilename({
+        filename,
+        dataset: 'g2g',
+        format: filename.split('.').pop()
+      });
+      downloadBlob(brandedFilename, response.data);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -443,7 +453,7 @@ const DashboardPage = () => {
       return;
     }
 
-    await openExportModal('csv');
+    await openExportModal('xls');
   };
 
   return (

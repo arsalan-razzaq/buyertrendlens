@@ -36,6 +36,28 @@ export const formatCurrency = (value = 0) =>
     maximumFractionDigits: 2
   }).format(Number(value) || 0);
 
+const slugifySegment = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+export const buildBrandedExportFilename = ({
+  filename = '',
+  dataset = '',
+  format = '',
+  prefix = 'buyer-trend-lens'
+} = {}) => {
+  const normalizedFilename = String(filename || '').trim();
+  const extensionMatch = normalizedFilename.match(/\.([a-z0-9]+)$/i);
+  const extension = slugifySegment(format || extensionMatch?.[1] || 'csv') || 'csv';
+  const datasetSegment = slugifySegment(dataset) || 'dataset';
+  const date = new Date().toISOString().slice(0, 10);
+
+  return `${prefix}-${datasetSegment}-export-${date}.${extension}`;
+};
+
 export const downloadCsv = (filename, csv) => {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);

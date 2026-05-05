@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "G2G Chat Helper",
+  "version": "0.1.0",
+  "description": "Queue seller chats and auto-fill a preset message on G2G chat pages.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.g2g.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "G2G Chat Helper",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.g2g.com/chat/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

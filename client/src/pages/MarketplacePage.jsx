@@ -1,15 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import http, { dataHttp, getErrorMessage } from '../api/http';
 import DataTable from '../components/DataTable';
 import ExportModal from '../components/ExportModal';
 import FilterPanel from '../components/FilterPanel';
 import { useAuth } from '../hooks/useAuth';
-import { downloadBlob, formatCoins, formatTimeRemaining } from '../utils/format';
+import { buildBrandedExportFilename, downloadBlob, formatCoins, formatTimeRemaining } from '../utils/format';
 
 const COIN_COST_PER_ROW = 1;
 const EXPORT_CONFIRMATION_STORAGE_KEY = 'skip-export-confirmation';
 const FILTER_APPLY_DEBOUNCE_MS = 300;
-const SUPPORTED_EXPORT_FORMATS = new Set(['csv', 'json', 'tsv']);
+const SUPPORTED_EXPORT_FORMATS = new Set(['xls', 'csv', 'json', 'tsv']);
 
 const initialFilters = {
   search: '',
@@ -26,44 +26,6 @@ const initialFilters = {
   group: '',
   groupName: '',
   ordersSold: ''
-};
-
-const ExportPulseCard = ({ dataset }) => {
-  const label = useMemo(() => `${String(dataset || 'g2g').toUpperCase()} export is being prepared`, [dataset]);
-
-  return (
-    <div className="overflow-hidden rounded-[28px] border border-sky-200 bg-[linear-gradient(135deg,rgba(14,116,144,0.08),rgba(59,130,246,0.14),rgba(255,255,255,0.95))] shadow-[0_18px_48px_rgba(14,116,144,0.12)]">
-      <div className="flex flex-col gap-5 px-5 py-5 sm:px-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700/80">Export in progress</p>
-            <h3 className="mt-2 text-lg font-semibold text-slate-900">{label}</h3>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              File build ho rahi hai. Download start hote hi copy save bhi ho jayegi aur dashboard par 20 din ke liye dikh jayegi.
-            </p>
-          </div>
-          <div className="relative mt-1 h-14 w-14 shrink-0">
-            <span className="absolute inset-0 animate-ping rounded-full bg-sky-300/50" />
-            <span className="absolute inset-2 rounded-full border-4 border-sky-500/25 border-t-sky-600 animate-spin" />
-            <span className="absolute inset-[18px] rounded-full bg-sky-600" />
-          </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          {[0, 1, 2].map((item) => (
-            <div key={item} className="rounded-2xl border border-white/70 bg-white/80 p-4 backdrop-blur">
-              <div className="h-2.5 w-20 animate-pulse rounded-full bg-slate-200" />
-              <div className="mt-4 space-y-2">
-                <div className="h-3 animate-pulse rounded-full bg-sky-100" />
-                <div className="h-3 w-4/5 animate-pulse rounded-full bg-slate-100" />
-                <div className="h-3 w-3/5 animate-pulse rounded-full bg-slate-100" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 };
 
 const MarketplacePage = ({ dataset }) => {
@@ -84,8 +46,13 @@ const MarketplacePage = ({ dataset }) => {
     });
     const disposition = String(response.headers['content-disposition'] || '');
     const matchedFilename = disposition.match(/filename="([^"]+)"/i)?.[1] || fallbackFilename || 'dataset-export';
+    const brandedFilename = buildBrandedExportFilename({
+      filename: matchedFilename,
+      dataset,
+      format: matchedFilename.split('.').pop()
+    });
 
-    downloadBlob(matchedFilename, response.data);
+    downloadBlob(brandedFilename, response.data);
   };
   const [savedExportFormat, setSavedExportFormat] = useState(() => {
     if (typeof window === 'undefined') {
@@ -167,7 +134,7 @@ const MarketplacePage = ({ dataset }) => {
     setAppliedFilters(initialFilters);
   };
 
-  const openExportModal = async (format = 'csv') => {
+  const openExportModal = async (format = 'xls') => {
     setError('');
     try {
       await refreshProfile();
@@ -178,7 +145,7 @@ const MarketplacePage = ({ dataset }) => {
     }
   };
 
-  const handleExport = async ({ format = 'csv', rememberChoice = false } = {}) => {
+  const handleExport = async ({ format = 'xls', rememberChoice = false } = {}) => {
     setExportLoading(true);
     setError('');
 
@@ -188,7 +155,11 @@ const MarketplacePage = ({ dataset }) => {
       setMessage(`${String(data.format || format).toUpperCase()} export completed. ${formatCoins(data.cost)} deducted from your wallet.`);
       setLastExport({
         id: data.id,
-        filename: data.filename,
+        filename: buildBrandedExportFilename({
+          filename: data.filename,
+          dataset,
+          format: data.format || format
+        }),
         format: data.format,
         totalRows: data.totalRows,
         expiresAt: data.expiresAt
@@ -216,7 +187,7 @@ const MarketplacePage = ({ dataset }) => {
       return;
     }
 
-    await openExportModal('csv');
+    await openExportModal('xls');
   };
 
   return (
@@ -237,9 +208,6 @@ const MarketplacePage = ({ dataset }) => {
         canExport={canExport}
         onExport={handleExportClick}
       />
-
-      {exportLoading ? <ExportPulseCard dataset={dataset} /> : null}
-
       {lastExport && !exportLoading ? (
         <div className="rounded-[28px] border border-emerald-200 bg-[linear-gradient(135deg,rgba(16,185,129,0.08),rgba(255,255,255,0.96))] px-5 py-5 shadow-[0_18px_40px_rgba(16,185,129,0.08)]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
