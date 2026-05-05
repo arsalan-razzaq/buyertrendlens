@@ -5,6 +5,9 @@ const {
   buildSellerRankMatch,
   filterCache,
   getCacheKey,
+  getOptionsCacheKey,
+  filterOptionsCache,
+  publicStatsCache,
   resolveSellerRankLabel
 } = require('../services/filterService');
 const { normalizeDataset } = require('../utils/dataset');
@@ -190,16 +193,25 @@ const getDataRecords = asyncHandler(async (req, res) => {
 
 const getPublicStats = asyncHandler(async (req, res) => {
   const dataset = normalizeDataset(req.query.dataset);
+  const statsCacheKey = `public-stats:${dataset}`;
+  const cachedStats = publicStatsCache.get(statsCacheKey);
+
+  if (cachedStats) {
+    return res.json(cachedStats);
+  }
+
   const totalRows = isRemoteDatasetEnabled(dataset)
     ? await countRemoteDatasetRecords({}, dataset)
     : (() => {
         assertLocalDatasetSupported(dataset, res);
         return DataRecord.countDocuments({});
       })();
-
-  res.json({
+  const payload = {
     totalRows
-  });
+  };
+
+  publicStatsCache.set(statsCacheKey, payload);
+  res.json(payload);
 });
 
 const getFilterOptions = asyncHandler(async (req, res) => {
@@ -215,6 +227,26 @@ const getFilterOptions = asyncHandler(async (req, res) => {
   const gameSearch = toTrimmedString(req.query.gameSearch || req.query.game_search);
   const sellerSearch = toTrimmedString(req.query.sellerSearch || req.query.seller_search);
   const optionLimit = clampOptionLimit(req.query.limit || req.query.maxResults);
+  const requestedField =
+    toTrimmedString(req.query.field).toLowerCase() ||
+    (categorySearch ? 'category' : gameSearch ? 'game' : sellerSearch ? 'seller' : '');
+  const optionsCacheKey = getOptionsCacheKey({
+    dataset,
+    category,
+    gameName,
+    sellerName,
+    minSellerRank,
+    categorySearch,
+    gameSearch,
+    sellerSearch,
+    optionLimit,
+    requestedField
+  });
+  const cachedOptions = filterOptionsCache.get(optionsCacheKey);
+
+  if (cachedOptions) {
+    return res.json(cachedOptions);
+  }
 
   if (isRemoteDatasetEnabled(dataset)) {
     const payload = await fetchRemoteFilterOptions({
@@ -226,15 +258,19 @@ const getFilterOptions = asyncHandler(async (req, res) => {
       categorySearch,
       gameSearch,
       sellerSearch,
-      limit: optionLimit
+      limit: optionLimit,
+      requestedField
     });
 
     const sortedGames = sortGamesByOrders(payload.games);
 
-    return res.json({
+    const responsePayload = {
       ...payload,
       games: sortedGames
-    });
+    };
+
+    filterOptionsCache.set(optionsCacheKey, responsePayload);
+    return res.json(responsePayload);
   }
 
   assertLocalDatasetSupported(dataset, res);
@@ -331,7 +367,7 @@ const getFilterOptions = asyncHandler(async (req, res) => {
     )
   ]);
 
-  res.json({
+  const responsePayload = {
     categories: categories.map((item) => item.value),
     games: games.map((item) => ({
       name: item.value,
@@ -340,7 +376,10 @@ const getFilterOptions = asyncHandler(async (req, res) => {
       total_success_order: Number(item.total_success_order) || 0
     })),
     sellers: sellers.map((item) => item.value)
-  });
+  };
+
+  filterOptionsCache.set(optionsCacheKey, responsePayload);
+  res.json(responsePayload);
 });
 
 module.exports = {

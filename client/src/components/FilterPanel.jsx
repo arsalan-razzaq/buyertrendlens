@@ -1,8 +1,8 @@
 import { memo, useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { dataHttp, getErrorMessage } from '../api/http';
 
-const OPTION_FETCH_DEBOUNCE_MS = 180;
-const OPTION_RESULT_LIMIT = 80;
+const OPTION_FETCH_DEBOUNCE_MS = 120;
+const OPTION_RESULT_LIMIT = 50;
 
 const g2gTextFields = [
   { key: 'priceMin', label: 'Min Price', placeholder: '0' },
@@ -58,7 +58,6 @@ const SearchableSelect = memo(function SearchableSelect({
     if (!open) {
       setSearchQuery('');
       setOptionsError('');
-      setOptionsReady(false);
     }
   }, [open]);
 
@@ -96,10 +95,8 @@ const SearchableSelect = memo(function SearchableSelect({
 
     let active = true;
     const timer = window.setTimeout(async () => {
-      setOptions(value ? [value] : []);
       setOptionsLoading(true);
       setOptionsError('');
-      setOptionsReady(false);
 
       try {
         const nextOptions = await loadOptions(deferredSearchQuery);
@@ -211,6 +208,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
   const fetchOptionList = useCallback(async (field, searchQuery = '') => {
     const params = {
       dataset,
+      field,
       limit: OPTION_RESULT_LIMIT,
       category: filters.category || '',
       gameName: filters.gameName || '',
@@ -248,8 +246,9 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
       resolvedOptions = Array.isArray(data.sellers) ? data.sellers : [];
     }
 
-    optionsCacheRef.current.set(cacheKey, resolvedOptions);
-    return resolvedOptions;
+    const dedupedOptions = Array.from(new Set(resolvedOptions));
+    optionsCacheRef.current.set(cacheKey, dedupedOptions);
+    return dedupedOptions;
   }, [dataset, filters.category, filters.gameName, filters.minSellerRank, filters.sellerName]);
 
   const categoryQueryKey = JSON.stringify({

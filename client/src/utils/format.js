@@ -36,6 +36,28 @@ export const formatCurrency = (value = 0) =>
     maximumFractionDigits: 2
   }).format(Number(value) || 0);
 
+const slugifySegment = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+export const buildBrandedExportFilename = ({
+  filename = '',
+  dataset = '',
+  format = '',
+  prefix = 'buyer-trend-lens'
+} = {}) => {
+  const normalizedFilename = String(filename || '').trim();
+  const extensionMatch = normalizedFilename.match(/\.([a-z0-9]+)$/i);
+  const extension = slugifySegment(format || extensionMatch?.[1] || 'csv') || 'csv';
+  const datasetSegment = slugifySegment(dataset) || 'dataset';
+  const date = new Date().toISOString().slice(0, 10);
+
+  return `${prefix}-${datasetSegment}-export-${date}.${extension}`;
+};
+
 export const downloadCsv = (filename, csv) => {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -50,6 +72,10 @@ export const downloadCsv = (filename, csv) => {
 
 export const downloadFile = (filename, content, mimeType = 'application/octet-stream') => {
   const blob = new Blob([content], { type: mimeType });
+  downloadBlob(filename, blob);
+};
+
+export const downloadBlob = (filename, blob) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -58,4 +84,26 @@ export const downloadFile = (filename, content, mimeType = 'application/octet-st
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+};
+
+export const formatTimeRemaining = (value) => {
+  if (!value) {
+    return 'Unavailable';
+  }
+
+  const diffMs = new Date(value).getTime() - Date.now();
+
+  if (diffMs <= 0) {
+    return 'Removing soon';
+  }
+
+  const totalHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+
+  if (days >= 1) {
+    return `${days} day${days === 1 ? '' : 's'}${hours ? ` ${hours}h` : ''}`;
+  }
+
+  return `${Math.max(totalHours, 1)} hour${Math.max(totalHours, 1) === 1 ? '' : 's'}`;
 };

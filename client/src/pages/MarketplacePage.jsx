@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { dataHttp, getErrorMessage } from '../api/http';
+import http, { dataHttp, getErrorMessage } from '../api/http';
 import DataTable from '../components/DataTable';
 import ExportModal from '../components/ExportModal';
 import FilterPanel from '../components/FilterPanel';
 import { useAuth } from '../hooks/useAuth';
-import { downloadFile, formatCoins } from '../utils/format';
+import { buildBrandedExportFilename, downloadBlob, formatCoins, formatTimeRemaining } from '../utils/format';
 
 const COIN_COST_PER_ROW = 1;
 const EXPORT_CONFIRMATION_STORAGE_KEY = 'skip-export-confirmation';
 const FILTER_APPLY_DEBOUNCE_MS = 300;
-const SUPPORTED_EXPORT_FORMATS = new Set(['csv', 'json', 'tsv']);
+const SUPPORTED_EXPORT_FORMATS = new Set(['xls', 'csv', 'json', 'tsv']);
 
 const initialFilters = {
   search: '',
@@ -38,6 +38,22 @@ const MarketplacePage = ({ dataset }) => {
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [lastExport, setLastExport] = useState(null);
+
+  const downloadSavedExport = async (exportId, fallbackFilename) => {
+    const response = await http.get(`/export/${exportId}/download`, {
+      responseType: 'blob'
+    });
+    const disposition = String(response.headers['content-disposition'] || '');
+    const matchedFilename = disposition.match(/filename="([^"]+)"/i)?.[1] || fallbackFilename || 'dataset-export';
+    const brandedFilename = buildBrandedExportFilename({
+      filename: matchedFilename,
+      dataset,
+      format: matchedFilename.split('.').pop()
+    });
+
+    downloadBlob(brandedFilename, response.data);
+  };
   const [savedExportFormat, setSavedExportFormat] = useState(() => {
     if (typeof window === 'undefined') {
       return '';
@@ -118,7 +134,7 @@ const MarketplacePage = ({ dataset }) => {
     setAppliedFilters(initialFilters);
   };
 
-  const openExportModal = async (format = 'csv') => {
+  const openExportModal = async (format = 'xls') => {
     setError('');
     try {
       await refreshProfile();
@@ -129,14 +145,25 @@ const MarketplacePage = ({ dataset }) => {
     }
   };
 
-  const handleExport = async ({ format = 'csv', rememberChoice = false } = {}) => {
+  const handleExport = async ({ format = 'xls', rememberChoice = false } = {}) => {
     setExportLoading(true);
     setError('');
 
     try {
       const { data } = await dataHttp.post('/export', { dataset, ...appliedFilters, format });
-      downloadFile(data.filename, data.content, data.mimeType);
+      await downloadSavedExport(data.id, data.filename);
       setMessage(`${String(data.format || format).toUpperCase()} export completed. ${formatCoins(data.cost)} deducted from your wallet.`);
+      setLastExport({
+        id: data.id,
+        filename: buildBrandedExportFilename({
+          filename: data.filename,
+          dataset,
+          format: data.format || format
+        }),
+        format: data.format,
+        totalRows: data.totalRows,
+        expiresAt: data.expiresAt
+      });
       setPreview(null);
       if (rememberChoice) {
         window.localStorage.setItem(`${EXPORT_CONFIRMATION_STORAGE_KEY}:${dataset}`, format);
@@ -160,7 +187,7 @@ const MarketplacePage = ({ dataset }) => {
       return;
     }
 
-    await openExportModal('csv');
+    await openExportModal('xls');
   };
 
   return (
@@ -177,9 +204,23 @@ const MarketplacePage = ({ dataset }) => {
         estimatedCost={estimatedCost}
         currentBalance={user?.coins ?? 0}
         loading={loading}
+        exportLoading={exportLoading}
         canExport={canExport}
         onExport={handleExportClick}
       />
+      {lastExport && !exportLoading ? (
+        <div className="rounded-[28px] border border-emerald-200 bg-[linear-gradient(135deg,rgba(16,185,129,0.08),rgba(255,255,255,0.96))] px-5 py-5 shadow-[0_18px_40px_rgba(16,185,129,0.08)]">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700/80">Saved export</p>
+              <h3 className="mt-2 text-base font-semibold text-slate-900">{lastExport.filename}</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                {String(lastExport.format || '').toUpperCase()} file with {Number(lastExport.totalRows || 0).toLocaleString()} rows. Auto remove in {formatTimeRemaining(lastExport.expiresAt)}.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <FilterPanel
         dataset={dataset}

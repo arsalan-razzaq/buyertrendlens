@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>G2G Chat Helper</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app">
+      <h1>G2G Chat Helper</h1>
+
+      <label class="field">
+        <span>Seller IDs or URLs</span>
+        <textarea id="sellerList" rows="7" placeholder="875683&#10;https://www.g2g.com/chat/#/user/123456"></textarea>
+      </label>
+
+      <label class="field">
+        <span>Preset message</span>
+        <textarea id="message" rows="5" placeholder="Hello, I want to ask about your listing."></textarea>
+      </label>
+
+      <label class="checkbox-row">
+        <input id="autoFillEnabled" type="checkbox" checked>
+        <span>Auto-fill message after chat opens</span>
+      </label>
+
+      <label class="checkbox-row">
+        <input id="autoSendEnabled" type="checkbox">
+        <span>Auto-send message after auto-fill</span>
+      </label>
+
+      <div class="status" id="status">Queue is empty.</div>
+
+      <div class="actions">
+        <button id="saveButton" type="button">Save Queue</button>
+        <button id="openButton" type="button">Open Current</button>
+      </div>
+
+      <div class="actions">
+        <button id="fillButton" type="button">Fill Current</button>
+        <button id="prevButton" type="button">Prev</button>
+        <button id="nextButton" type="button">Next</button>
+      </div>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

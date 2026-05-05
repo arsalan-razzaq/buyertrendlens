@@ -1,3 +1,5 @@
+const NodeCache = require('node-cache');
+
 const REMOTE_FILTER_KEYS = [
   'search',
   'category',
@@ -14,7 +16,18 @@ const REMOTE_FILTER_KEYS = [
   'ordersSold'
 ];
 const REMOTE_DATASET_MAX_LIMIT = 100;
+const FILTER_OPTIONS_CACHE_TTL_SECONDS = Math.max(Number(process.env.REMOTE_FILTER_OPTIONS_CACHE_TTL_SECONDS) || 600, 30);
+const filterOptionsCache = new NodeCache({
+  stdTTL: FILTER_OPTIONS_CACHE_TTL_SECONDS,
+  useClones: false
+});
 const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+
+const getFilterOptionsCacheKey = (dataset, params) =>
+  JSON.stringify({
+    dataset,
+    ...params
+  });
 
 const getDatasetConfig = (dataset = 'g2g') => {
   const normalizedDataset = String(dataset || 'g2g').trim().toLowerCase();
@@ -253,12 +266,27 @@ const formatRemoteProductUrl = (value) => {
     return normalized;
   }
 
-  return `https://www.g2g.com/categories/${normalized.replace(/^\/+/, '')}`;
+  const cleaned = normalized.replace(/^\/+/, '');
+
+  if (cleaned.includes('/') || /^[a-z0-9-]{6,}$/i.test(cleaned)) {
+    return `https://www.g2g.com/categories/${cleaned}`;
+  }
+
+  return '';
 };
 
 const formatEldoradoMarketplaceUrl = (value) => {
   const normalized = String(value || '').trim();
-  return normalized || '';
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized;
+  }
+
+  return `https://www.eldorado.gg/${normalized.replace(/^\/+/, '')}`;
 };
 
 const transformEldoradoRecord = (record = {}) => ({
@@ -424,8 +452,27 @@ const fetchRemoteFilterOptions = async ({
   categorySearch = '',
   gameSearch = '',
   sellerSearch = '',
-  limit = 100
+  limit = 100,
+  requestedField = ''
 } = {}) => {
+  const normalizedParams = {
+    category: String(category || '').trim(),
+    gameName: String(gameName || '').trim(),
+    sellerName: String(sellerName || '').trim(),
+    minSellerRank: String(minSellerRank || '').trim(),
+    categorySearch: String(categorySearch || '').trim(),
+    gameSearch: String(gameSearch || '').trim(),
+    sellerSearch: String(sellerSearch || '').trim(),
+    limit: Math.max(Number(limit) || 100, 1),
+    requestedField: String(requestedField || '').trim().toLowerCase()
+  };
+  const cacheKey = getFilterOptionsCacheKey(dataset, normalizedParams);
+  const cached = filterOptionsCache.get(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
   if (dataset === 'eldorado') {
     const config = getDatasetConfig(dataset);
     const apiUrl = getRemoteFilterOptionsApiUrl(dataset);
@@ -436,13 +483,13 @@ const fetchRemoteFilterOptions = async ({
 
     const url = new URL(apiUrl);
     const query = {
-      category: String(category || '').trim(),
-      game_name: String(gameName || '').trim(),
-      seller_name: String(sellerName || '').trim(),
-      category_search: String(categorySearch || '').trim(),
-      game_search: String(gameSearch || '').trim(),
-      seller_search: String(sellerSearch || '').trim(),
-      limit: String(limit || 100).trim()
+      category: normalizedParams.category,
+      game_name: normalizedParams.gameName,
+      seller_name: normalizedParams.sellerName,
+      category_search: normalizedParams.categorySearch,
+      game_search: normalizedParams.gameSearch,
+      seller_search: normalizedParams.sellerSearch,
+      limit: String(normalizedParams.limit)
     };
 
     for (const [key, value] of Object.entries(query)) {
@@ -475,17 +522,17 @@ const fetchRemoteFilterOptions = async ({
     }
 
     const data = payload.data || {};
-    const normalizedCategorySearch = String(categorySearch || '').trim().toLowerCase();
-    const normalizedGameSearch = String(gameSearch || '').trim().toLowerCase();
-    const normalizedSellerSearch = String(sellerSearch || '').trim().toLowerCase();
+    const normalizedCategorySearch = normalizedParams.categorySearch.toLowerCase();
+    const normalizedGameSearch = normalizedParams.gameSearch.toLowerCase();
+    const normalizedSellerSearch = normalizedParams.sellerSearch.toLowerCase();
     const rawCategories = Array.isArray(data.categories) ? data.categories : [];
-    const selectedCategory = String(category || '').trim().toLowerCase();
-    const selectedGame = String(gameName || '').trim().toLowerCase();
+    const selectedCategory = normalizedParams.category.toLowerCase();
+    const selectedGame = normalizedParams.gameName.toLowerCase();
     const categories = (Array.isArray(data.categoryTypes) ? data.categoryTypes : [])
       .map((item) => String(item || '').trim())
       .filter(Boolean)
       .filter((item) => !normalizedCategorySearch || item.toLowerCase().includes(normalizedCategorySearch))
-      .slice(0, limit);
+      .slice(0, normalizedParams.limit);
 
     const games = rawCategories
       .map((item) => ({
@@ -496,7 +543,7 @@ const fetchRemoteFilterOptions = async ({
       .filter((item) => !selectedCategory || item.category.toLowerCase() === selectedCategory)
       .filter((item) => !normalizedGameSearch || item.name.toLowerCase().includes(normalizedGameSearch))
       .filter((item, index, list) => list.findIndex((candidate) => candidate.name.toLowerCase() === item.name.toLowerCase()) === index)
-      .slice(0, limit)
+      .slice(0, normalizedParams.limit)
       .map((item) => ({
         name: item.name,
         brand_ids: [],
@@ -508,13 +555,16 @@ const fetchRemoteFilterOptions = async ({
       .map((item) => String(item || '').trim())
       .filter(Boolean)
       .filter((item) => !normalizedSellerSearch || item.toLowerCase().includes(normalizedSellerSearch))
-      .slice(0, limit);
+      .slice(0, normalizedParams.limit);
 
-    return {
+    const result = {
       categories,
       games,
       sellers
     };
+
+    filterOptionsCache.set(cacheKey, result);
+    return result;
   }
 
   const config = getDatasetConfig(dataset);
@@ -522,24 +572,6 @@ const fetchRemoteFilterOptions = async ({
 
   if (!apiUrl) {
     throw new Error(`${config.dataset.toUpperCase()} remote filters URL is not configured.`);
-  }
-
-  const url = new URL(apiUrl);
-  const query = {
-    category: String(category || '').trim(),
-    game_name: String(gameName || '').trim(),
-    seller_name: String(sellerName || '').trim(),
-    minSellerRank: String(minSellerRank || '').trim(),
-    category_search: String(categorySearch || '').trim(),
-    game_search: String(gameSearch || '').trim(),
-    seller_search: String(sellerSearch || '').trim(),
-    limit: String(limit || 100).trim()
-  };
-
-  for (const [key, value] of Object.entries(query)) {
-    if (value) {
-      url.searchParams.set(key, value);
-    }
   }
 
   const headers = {
@@ -550,10 +582,116 @@ const fetchRemoteFilterOptions = async ({
     headers['X-Dataset-Key'] = config.apiKey;
   }
 
-  const response = await fetch(url, {
-    headers,
-    signal: AbortSignal.timeout(config.timeoutMs)
-  });
+  const shouldUseCategoryMetaOnly =
+    normalizedParams.requestedField === 'game' &&
+    Boolean(normalizedParams.category) &&
+    !normalizedParams.sellerName &&
+    !normalizedParams.minSellerRank;
+  const shouldFetchCategoryMeta = normalizedParams.requestedField === 'game' && Boolean(normalizedParams.category);
+  const categoryOptionsUrl = shouldFetchCategoryMeta ? getRemoteCategoryOptionsApiUrl(dataset) : '';
+  const categoryUrl = categoryOptionsUrl ? new URL(categoryOptionsUrl) : null;
+
+  if (categoryUrl && normalizedParams.category) {
+    categoryUrl.searchParams.set('type', normalizedParams.category);
+  }
+
+  if (shouldUseCategoryMetaOnly && categoryUrl) {
+    const categoryResponse = await fetch(categoryUrl, {
+      headers,
+      signal: AbortSignal.timeout(config.timeoutMs)
+    });
+    const categoryPayload = await parseRemotePayload(categoryResponse);
+
+    if (!categoryResponse.ok) {
+      throw new Error(
+        categoryPayload.message ||
+          categoryPayload.error ||
+          `Remote category metadata request failed with status ${categoryResponse.status}.`
+      );
+    }
+
+    const categoryData = categoryPayload?.data || categoryPayload || {};
+    const categoryGames = Array.isArray(categoryData.categories_meta) ? categoryData.categories_meta : [];
+    const normalizedGameSearch = normalizedParams.gameSearch.toLowerCase();
+    const seenGames = new Set();
+    const games = [];
+
+    for (const item of categoryGames) {
+      const name = String(item?.name || '').trim();
+      const normalizedName = name.toLowerCase();
+
+      if (!name || seenGames.has(normalizedName)) {
+        continue;
+      }
+
+      if (normalizedGameSearch && !normalizedName.includes(normalizedGameSearch)) {
+        continue;
+      }
+
+      const brandIds = Array.isArray(item?.brand_ids)
+        ? item.brand_ids.map((brandId) => String(brandId || '').trim()).filter(Boolean)
+        : [];
+
+      seenGames.add(normalizedName);
+      games.push({
+        name,
+        brand_ids: brandIds,
+        brand_id: brandIds[0] || null,
+        total_success_order: Number(item?.sold_total) || 0
+      });
+
+      if (games.length >= normalizedParams.limit) {
+        break;
+      }
+    }
+
+    if (games.length) {
+      const categoryOnlyResult = {
+        categories: [],
+        games,
+        sellers: []
+      };
+
+      filterOptionsCache.set(cacheKey, categoryOnlyResult);
+      return categoryOnlyResult;
+    }
+  }
+
+  const url = new URL(apiUrl);
+  const query = {
+    category: normalizedParams.category,
+    game_name: normalizedParams.gameName,
+    seller_name: normalizedParams.sellerName,
+    minSellerRank: normalizedParams.minSellerRank,
+    category_search: normalizedParams.categorySearch,
+    game_search: normalizedParams.gameSearch,
+    seller_search: normalizedParams.sellerSearch,
+    limit: String(normalizedParams.limit)
+  };
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  const [response, categoryMetaResult] = await Promise.all([
+    fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(config.timeoutMs)
+    }),
+    categoryUrl
+      ? fetch(categoryUrl, {
+          headers,
+          signal: AbortSignal.timeout(config.timeoutMs)
+        })
+          .then(async (categoryResponse) => ({
+            ok: categoryResponse.ok,
+            payload: await parseRemotePayload(categoryResponse)
+          }))
+          .catch(() => null)
+      : Promise.resolve(null)
+  ]);
 
   const payload = await parseRemotePayload(response);
 
@@ -578,69 +716,55 @@ const fetchRemoteFilterOptions = async ({
         }
   );
 
-  const categoryOptionsUrl = getRemoteCategoryOptionsApiUrl(dataset);
-
-  if (categoryOptionsUrl) {
+  if (categoryMetaResult?.ok) {
     try {
-      const categoryUrl = new URL(categoryOptionsUrl);
-      const selectedCategory = String(category || '').trim();
+      const categoryData = categoryMetaResult.payload?.data || categoryMetaResult.payload || {};
+      const categoryGames = Array.isArray(categoryData.categories_meta) ? categoryData.categories_meta : [];
+      const nextGames = [];
+      const seenGames = new Set();
+      const normalizedGameSearch = normalizedParams.gameSearch.toLowerCase();
 
-      if (selectedCategory) {
-        categoryUrl.searchParams.set('type', selectedCategory);
+      for (const item of categoryGames) {
+        const name = String(item?.name || '').trim();
+        const normalizedName = name.toLowerCase();
+
+        if (!name || seenGames.has(normalizedName)) {
+          continue;
+        }
+
+        if (normalizedGameSearch && !normalizedName.includes(normalizedGameSearch)) {
+          continue;
+        }
+
+        const brandIds = Array.isArray(item?.brand_ids)
+          ? item.brand_ids.map((brandId) => String(brandId || '').trim()).filter(Boolean)
+          : [];
+
+        seenGames.add(normalizedName);
+        nextGames.push({
+          name,
+          brand_ids: brandIds,
+          brand_id: brandIds[0] || null,
+          total_success_order: Number(item?.sold_total) || 0
+        });
       }
 
-        const categoryResponse = await fetch(categoryUrl, {
-          headers,
-          signal: AbortSignal.timeout(config.timeoutMs)
-        });
-      const categoryPayload = await parseRemotePayload(categoryResponse);
-
-      if (categoryResponse.ok) {
-        const categoryData = categoryPayload.data || categoryPayload;
-        const categoryGames = Array.isArray(categoryData.categories_meta) ? categoryData.categories_meta : [];
-        const nextGames = [];
-        const seenGames = new Set();
-        const normalizedGameSearch = String(gameSearch || '').trim().toLowerCase();
-
-        for (const item of categoryGames) {
-          const name = String(item?.name || '').trim();
-          const normalizedName = name.toLowerCase();
-
-          if (!name || seenGames.has(normalizedName)) {
-            continue;
-          }
-
-          if (normalizedGameSearch && !normalizedName.includes(normalizedGameSearch)) {
-            continue;
-          }
-
-          const brandIds = Array.isArray(item?.brand_ids)
-            ? item.brand_ids.map((brandId) => String(brandId || '').trim()).filter(Boolean)
-            : [];
-
-          seenGames.add(normalizedName);
-          nextGames.push({
-            name,
-            brand_ids: brandIds,
-            brand_id: brandIds[0] || null,
-            total_success_order: Number(item?.sold_total) || 0
-          });
-        }
-
-        if (nextGames.length) {
-          normalizedGames = nextGames;
-        }
+      if (nextGames.length) {
+        normalizedGames = nextGames;
       }
     } catch (error) {
       // Fall back to the product-derived games list when the master category endpoint is unavailable.
     }
   }
 
-  return {
-    categories: Array.isArray(data.categories) ? data.categories.slice(0, limit) : [],
-    games: normalizedGames.slice(0, limit),
-    sellers: Array.isArray(data.sellers) ? data.sellers.slice(0, limit) : []
+  const result = {
+    categories: Array.isArray(data.categories) ? data.categories.slice(0, normalizedParams.limit) : [],
+    games: normalizedGames.slice(0, normalizedParams.limit),
+    sellers: Array.isArray(data.sellers) ? data.sellers.slice(0, normalizedParams.limit) : []
   };
+
+  filterOptionsCache.set(cacheKey, result);
+  return result;
 };
 
 const countRemoteDatasetRecords = async (filters = {}, dataset = 'g2g') => {
@@ -746,6 +870,27 @@ const fetchRemoteProductsPage = async ({ dataset = 'g2g', gameName = '', sellerN
   };
 };
 
+const warmRemoteFilterOptionCaches = async () => {
+  const warmTargets = [
+    { dataset: 'g2g', requestedField: 'category', limit: 50 },
+    { dataset: 'g2g', requestedField: 'seller', limit: 50 },
+    { dataset: 'g2g', requestedField: 'game', limit: 50 },
+    { dataset: 'g2g', requestedField: 'game', category: 'accounts', limit: 50 },
+    { dataset: 'g2g', requestedField: 'game', category: 'items', limit: 50 },
+    { dataset: 'g2g', requestedField: 'game', category: 'software-account', limit: 50 },
+    { dataset: 'g2g', requestedField: 'game', category: 'software-app-top-up', limit: 50 },
+    { dataset: 'eldorado', requestedField: 'category', limit: 50 },
+    { dataset: 'eldorado', requestedField: 'seller', limit: 50 },
+    { dataset: 'eldorado', requestedField: 'game', limit: 50 }
+  ].filter((item) => isRemoteDatasetEnabled(item.dataset));
+
+  await Promise.allSettled(
+    warmTargets.map((target) =>
+      fetchRemoteFilterOptions(target).catch(() => null)
+    )
+  );
+};
+
 const mergeNormalizedAndRawProduct = (record, rawProduct) => {
   if (!rawProduct) {
     return record;
@@ -757,7 +902,7 @@ const mergeNormalizedAndRawProduct = (record, rawProduct) => {
     offerId: rawProduct.offer_id || '',
     brandId: rawProduct.brand_id || '',
     productName: rawProduct.name || '',
-    productUrl: formatRemoteProductUrl(rawProduct.url),
+    productUrl: formatRemoteProductUrl(rawProduct.url) || formatRemoteProductUrl(record.productUrl) || record.productUrl || '',
     totalOffer: Number(rawProduct.total_offer) || 0,
     displayCurrency: rawProduct.display_currency || '',
     displayPrice: rawProduct.display_price || '',
@@ -878,5 +1023,6 @@ module.exports = {
   countRemoteDatasetRecords,
   fetchAllRemoteDatasetRecords,
   fetchRemoteFilterOptions,
-  enrichRemoteDatasetRecordsForExport
+  enrichRemoteDatasetRecordsForExport,
+  warmRemoteFilterOptionCaches
 };

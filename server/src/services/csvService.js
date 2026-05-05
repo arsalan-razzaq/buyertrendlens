@@ -2,30 +2,30 @@ const { Parser } = require('json2csv');
 
 const preferredExportFields = [
   { label: 'ID', value: '_id' },
-  { label: 'Title', value: 'title' },
-  { label: 'Category', value: 'category' },
   { label: 'Game Name', value: 'gameName' },
-  { label: 'Seller Name', value: 'sellerName' },
+  { label: 'Product Url', value: 'productUrl' },
+  { label: 'Title', value: 'title' },
+  { label: 'Description', value: 'description' },
   { label: 'Price', value: 'price' },
+  { label: 'Orders Sold', value: 'ordersSold' },
+  { label: 'Seller Name', value: 'sellerName' },
+  { label: 'Category', value: 'category' },
   { label: 'Rating', value: 'rating' },
   { label: 'User Level', value: 'userLevel' },
   { label: 'Seller Rank', value: 'sellerRank' },
   { label: 'Score', value: 'score' },
   { label: 'Group', value: 'groupName' },
-  { label: 'Orders Sold', value: 'ordersSold' },
   { label: 'Created At', value: 'createdAt' },
   { label: 'Updated At', value: 'updatedAt' },
   { label: 'Offer Id', value: 'offerId' },
   { label: 'Brand Id', value: 'brandId' },
   { label: 'Product Name', value: 'productName' },
-  { label: 'Product Url', value: 'productUrl' },
   { label: 'Total Offer', value: 'totalOffer' },
   { label: 'Display Currency', value: 'displayCurrency' },
   { label: 'Display Price', value: 'displayPrice' },
   { label: 'Converted Unit Price', value: 'convertedUnitPrice' },
   { label: 'Is Unique', value: 'isUnique' },
   { label: 'Is Group Display', value: 'isGroupDisplay' },
-  { label: 'Description', value: 'description' },
   { label: 'Delivery Speed', value: 'deliverySpeed' },
   { label: 'Total Rating', value: 'totalRating' },
   { label: 'Status', value: 'status' },
@@ -48,6 +48,55 @@ const humanizeFieldName = (value) =>
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const getFieldValue = (record, field) => {
+  if (!record || typeof record !== 'object') {
+    return '';
+  }
+
+  const rawValue =
+    typeof field.value === 'function'
+      ? field.value(record)
+      : record?.[field.value];
+
+  if (rawValue === undefined || rawValue === null) {
+    return '';
+  }
+
+  if (Array.isArray(rawValue)) {
+    return rawValue.join(', ');
+  }
+
+  if (typeof rawValue === 'object') {
+    return JSON.stringify(rawValue);
+  }
+
+  return String(rawValue);
+};
+
+const normalizeCellText = (value) =>
+  String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+
+const compactDescription = (value, maxLength = 180) => {
+  const compacted = normalizeCellText(value).replace(/\s+/g, ' ');
+
+  if (compacted.length <= maxLength) {
+    return compacted;
+  }
+
+  return `${compacted.slice(0, maxLength - 1).trimEnd()}...`;
+};
+
+const escapeHtml = (value) =>
+  String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 const buildExportFields = (records = []) => {
   const availableKeys = new Set();
@@ -91,10 +140,59 @@ const createTsv = (records) => {
 
 const createJson = (records) => JSON.stringify(records, null, 2);
 
+const createExcel = (records) => {
+  const fields = buildExportFields(records);
+  const descriptionFieldKey = 'description';
+  const rows = (Array.isArray(records) ? records : []).map((record) =>
+    fields
+      .map((field) => {
+        const rawValue = getFieldValue(record, field);
+        const value = field.value === descriptionFieldKey ? compactDescription(rawValue) : normalizeCellText(rawValue);
+        const escapedValue = escapeHtml(value);
+
+        if (field.value === 'productUrl' && /^https?:\/\//i.test(value)) {
+          return `<td class="cell cell-url"><a href="${escapeHtml(value)}">${escapedValue}</a></td>`;
+        }
+
+        return `<td class="cell${field.value === descriptionFieldKey ? ' cell-description' : ''}">${escapedValue}</td>`;
+      })
+      .join('')
+  );
+
+  const headerMarkup = fields
+    .map((field) => `<th class="header">${escapeHtml(field.label)}</th>`)
+    .join('');
+
+  return [
+    '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">',
+    '<head>',
+    '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />',
+    '<meta name="ProgId" content="Excel.Sheet" />',
+    '<meta name="Generator" content="Buyer Trend Lens" />',
+    '<style>',
+    'table { border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; }',
+    '.header { background: #dbeafe; color: #0f172a; font-weight: 700; text-align: center; border: 1px solid #cbd5e1; padding: 10px 12px; }',
+    '.cell { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: center; vertical-align: middle; }',
+    '.cell-description { min-width: 320px; max-width: 320px; white-space: normal; word-break: break-word; line-height: 1.35; }',
+    '.cell-url { min-width: 260px; max-width: 260px; }',
+    '.cell-url a { color: #1d4ed8; text-decoration: underline; }',
+    '</style>',
+    '</head>',
+    '<body>',
+    '<table>',
+    `<thead><tr>${headerMarkup}</tr></thead>`,
+    `<tbody>${rows.map((row) => `<tr>${row}</tr>`).join('')}</tbody>`,
+    '</table>',
+    '</body>',
+    '</html>'
+  ].join('');
+};
+
 module.exports = {
   exportFields: preferredExportFields,
   buildExportFields,
   createCsv,
+  createExcel,
   createJson,
   createTsv
 };
