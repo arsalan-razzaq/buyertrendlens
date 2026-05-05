@@ -44,16 +44,17 @@ const SearchableSelect = memo(function SearchableSelect({
   loadingLabel,
   loadOptions,
   queryKey,
+  initialOptions = [],
   clientSearch = true,
   disabled = false
 }) {
   const containerRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [options, setOptions] = useState(value ? [value] : []);
+  const [options, setOptions] = useState(() => Array.from(new Set([value, ...initialOptions].filter(Boolean))));
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState('');
-  const [optionsReady, setOptionsReady] = useState(false);
+  const [optionsReady, setOptionsReady] = useState(Boolean(initialOptions.length || value));
 
   useEffect(() => {
     if (!open) {
@@ -84,10 +85,10 @@ const SearchableSelect = memo(function SearchableSelect({
   }, [value]);
 
   useEffect(() => {
-    setOptions(value ? [value] : []);
+    setOptions(Array.from(new Set([value, ...initialOptions].filter(Boolean))));
     setOptionsError('');
-    setOptionsReady(false);
-  }, [queryKey, value]);
+    setOptionsReady(Boolean(initialOptions.length || value));
+  }, [initialOptions, queryKey, value]);
 
   const remoteSearchQuery = clientSearch ? '' : searchQuery;
 
@@ -215,7 +216,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
     optionsCacheRef.current.clear();
   }, [dataset, filters.category, filters.gameName, filters.minSellerRank]);
 
-  const fetchOptionList = useCallback(async (field, searchQuery = '') => {
+  const buildOptionParams = useCallback((field, searchQuery = '') => {
     const params = {
       dataset,
       field,
@@ -237,7 +238,14 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
       params.sellerSearch = searchQuery;
     }
 
-    const cacheKey = JSON.stringify({ field, ...params });
+    return params;
+  }, [dataset, filters.category, filters.gameName, filters.minSellerRank, filters.sellerName]);
+
+  const getOptionCacheKey = useCallback((field, searchQuery = '') => JSON.stringify({ field, ...buildOptionParams(field, searchQuery) }), [buildOptionParams]);
+
+  const fetchOptionList = useCallback(async (field, searchQuery = '') => {
+    const params = buildOptionParams(field, searchQuery);
+    const cacheKey = getOptionCacheKey(field, searchQuery);
     const cached = optionsCacheRef.current.get(cacheKey);
     if (cached) {
       return cached;
@@ -259,7 +267,13 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
     const dedupedOptions = Array.from(new Set(resolvedOptions));
     optionsCacheRef.current.set(cacheKey, dedupedOptions);
     return dedupedOptions;
-  }, [dataset, filters.category, filters.gameName, filters.minSellerRank, filters.sellerName]);
+  }, [buildOptionParams, getOptionCacheKey]);
+
+  const getCachedOptions = useCallback((field, searchQuery = '') => {
+    const cacheKey = getOptionCacheKey(field, searchQuery);
+    const cached = optionsCacheRef.current.get(cacheKey);
+    return Array.isArray(cached) ? cached : [];
+  }, [getOptionCacheKey]);
 
   const categoryQueryKey = JSON.stringify({
     dataset,
@@ -325,6 +339,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           searchPlaceholder={isEldorado ? 'Search category type...' : 'Search category...'}
           emptyLabel="No categories found."
           loadingLabel="Loading categories..."
+          initialOptions={getCachedOptions('category')}
           clientSearch
           disabled={loading}
         />
@@ -342,6 +357,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           searchPlaceholder="Search game..."
           emptyLabel="No games found."
           loadingLabel="Loading games..."
+          initialOptions={getCachedOptions('game')}
           clientSearch
           disabled={loading}
         />
@@ -390,6 +406,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           searchPlaceholder="Search seller..."
           emptyLabel="No sellers found."
           loadingLabel="Loading sellers..."
+          initialOptions={getCachedOptions('seller')}
           clientSearch
           disabled={loading}
         />
