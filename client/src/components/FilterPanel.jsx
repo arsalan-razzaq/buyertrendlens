@@ -1,8 +1,9 @@
-import { memo, useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { dataHttp, getErrorMessage } from '../api/http';
 
 const OPTION_FETCH_DEBOUNCE_MS = 120;
-const OPTION_RESULT_LIMIT = 50;
+const OPTION_RESULT_LIMIT = 250;
+const OPTION_VISIBLE_LIMIT = 120;
 
 const g2gTextFields = [
   { key: 'priceMin', label: 'Min Price', placeholder: '0' },
@@ -43,12 +44,12 @@ const SearchableSelect = memo(function SearchableSelect({
   loadingLabel,
   loadOptions,
   queryKey,
+  clientSearch = true,
   disabled = false
 }) {
   const containerRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [options, setOptions] = useState(value ? [value] : []);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState('');
@@ -88,6 +89,8 @@ const SearchableSelect = memo(function SearchableSelect({
     setOptionsReady(false);
   }, [queryKey, value]);
 
+  const remoteSearchQuery = clientSearch ? '' : searchQuery;
+
   useEffect(() => {
     if (!open || disabled) {
       return undefined;
@@ -99,7 +102,7 @@ const SearchableSelect = memo(function SearchableSelect({
       setOptionsError('');
 
       try {
-        const nextOptions = await loadOptions(deferredSearchQuery);
+        const nextOptions = await loadOptions(remoteSearchQuery);
 
         if (!active) {
           return;
@@ -124,7 +127,14 @@ const SearchableSelect = memo(function SearchableSelect({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [deferredSearchQuery, disabled, loadOptions, open, queryKey, value]);
+  }, [disabled, loadOptions, open, queryKey, remoteSearchQuery, value]);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleOptions = clientSearch
+    ? options
+        .filter((option) => !normalizedQuery || String(option).toLowerCase().includes(normalizedQuery))
+        .slice(0, OPTION_VISIBLE_LIMIT)
+    : options;
 
   return (
     <label className={open ? 'relative z-40' : 'relative'}>
@@ -170,8 +180,8 @@ const SearchableSelect = memo(function SearchableSelect({
 
               {optionsLoading || !optionsReady ? (
                 <div className="px-3 py-3 text-sm text-slate-400">{loadingLabel}</div>
-              ) : options.length ? (
-                options.map((option) => (
+              ) : visibleOptions.length ? (
+                visibleOptions.map((option) => (
                   <button
                     key={option}
                     type="button"
@@ -269,6 +279,14 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
     minSellerRank: filters.minSellerRank || ''
   });
 
+  useEffect(() => {
+    if (!filters.category) {
+      return;
+    }
+
+    fetchOptionList('game', '').catch(() => {});
+  }, [fetchOptionList, filters.category]);
+
   return (
     <div className="panel relative z-20 p-4 sm:p-5">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -307,6 +325,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           searchPlaceholder={isEldorado ? 'Search category type...' : 'Search category...'}
           emptyLabel="No categories found."
           loadingLabel="Loading categories..."
+          clientSearch
           disabled={loading}
         />
 
@@ -323,6 +342,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           searchPlaceholder="Search game..."
           emptyLabel="No games found."
           loadingLabel="Loading games..."
+          clientSearch
           disabled={loading}
         />
 
@@ -370,6 +390,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           searchPlaceholder="Search seller..."
           emptyLabel="No sellers found."
           loadingLabel="Loading sellers..."
+          clientSearch
           disabled={loading}
         />
 

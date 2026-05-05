@@ -47,12 +47,13 @@ export const buildBrandedExportFilename = ({
   filename = '',
   dataset = '',
   format = '',
-  prefix = 'buyer-trend-lens'
+  prefix = 'buyertrendlens-com'
 } = {}) => {
   const normalizedFilename = String(filename || '').trim();
   const extensionMatch = normalizedFilename.match(/\.([a-z0-9]+)$/i);
   const extension = slugifySegment(format || extensionMatch?.[1] || 'csv') || 'csv';
-  const datasetSegment = slugifySegment(dataset) || 'dataset';
+  const normalizedDataset = slugifySegment(dataset);
+  const datasetSegment = normalizedDataset === 'eldorado' ? 'eldo' : normalizedDataset || 'dataset';
   const date = new Date().toISOString().slice(0, 10);
 
   return `${prefix}-${datasetSegment}-export-${date}.${extension}`;

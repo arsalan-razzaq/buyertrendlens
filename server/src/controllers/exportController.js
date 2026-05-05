@@ -48,6 +48,13 @@ const exportFormatConfig = {
 };
 
 const getExportFormat = (value) => exportFormatConfig[String(value || DEFAULT_EXPORT_FORMAT).toLowerCase()] ? String(value || DEFAULT_EXPORT_FORMAT).toLowerCase() : DEFAULT_EXPORT_FORMAT;
+const buildExportFilename = (dataset, extension) => {
+  const normalizedDataset = String(dataset || '').trim().toLowerCase();
+  const datasetSegment = normalizedDataset === 'eldorado' ? 'eldo' : normalizedDataset || 'dataset';
+  const date = new Date().toISOString().slice(0, 10);
+
+  return `buyertrendlens-com-${datasetSegment}-export-${date}.${extension}`;
+};
 
 const assertLocalDatasetSupported = (dataset, res) => {
   if (dataset !== 'g2g') {
@@ -205,7 +212,7 @@ const exportCsv = asyncHandler(async (req, res) => {
       }
     });
 
-    const filename = `dataset-export-${dataset}-${Date.now()}.${exportConfig.filenameExtension}`;
+    const filename = buildExportFilename(dataset, exportConfig.filenameExtension);
     const exportFile = await ExportFile.create({
       userId: req.user._id,
       dataset,

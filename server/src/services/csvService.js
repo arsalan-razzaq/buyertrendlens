@@ -80,16 +80,6 @@ const normalizeCellText = (value) =>
     .replace(/\r/g, '\n')
     .trim();
 
-const compactDescription = (value, maxLength = 180) => {
-  const compacted = normalizeCellText(value).replace(/\s+/g, ' ');
-
-  if (compacted.length <= maxLength) {
-    return compacted;
-  }
-
-  return `${compacted.slice(0, maxLength - 1).trimEnd()}...`;
-};
-
 const escapeHtml = (value) =>
   String(value || '')
     .replace(/&/g, '&amp;')
@@ -128,17 +118,28 @@ const buildExportFields = (records = []) => {
   return fields;
 };
 
+const mapRecordToExportRow = (record, fields) =>
+  fields.reduce((row, field) => {
+    row[field.label] = normalizeCellText(getFieldValue(record, field));
+    return row;
+  }, {});
+
+const buildExportRows = (records = [], fields = buildExportFields(records)) =>
+  (Array.isArray(records) ? records : []).map((record) => mapRecordToExportRow(record, fields));
+
 const createCsv = (records) => {
-  const parser = new Parser({ fields: buildExportFields(records) });
-  return parser.parse(records);
+  const fields = buildExportFields(records);
+  const parser = new Parser({ fields: fields.map((field) => field.label) });
+  return parser.parse(buildExportRows(records, fields));
 };
 
 const createTsv = (records) => {
-  const parser = new Parser({ fields: buildExportFields(records), delimiter: '\t' });
-  return parser.parse(records);
+  const fields = buildExportFields(records);
+  const parser = new Parser({ fields: fields.map((field) => field.label), delimiter: '\t' });
+  return parser.parse(buildExportRows(records, fields));
 };
 
-const createJson = (records) => JSON.stringify(records, null, 2);
+const createJson = (records) => JSON.stringify(buildExportRows(records), null, 2);
 
 const createExcel = (records) => {
   const fields = buildExportFields(records);
@@ -147,7 +148,7 @@ const createExcel = (records) => {
     fields
       .map((field) => {
         const rawValue = getFieldValue(record, field);
-        const value = field.value === descriptionFieldKey ? compactDescription(rawValue) : normalizeCellText(rawValue);
+        const value = normalizeCellText(rawValue);
         const escapedValue = escapeHtml(value);
 
         if (field.value === 'productUrl' && /^https?:\/\//i.test(value)) {
@@ -170,10 +171,10 @@ const createExcel = (records) => {
     '<meta name="ProgId" content="Excel.Sheet" />',
     '<meta name="Generator" content="Buyer Trend Lens" />',
     '<style>',
-    'table { border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; }',
+    'table { border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; table-layout: fixed; }',
     '.header { background: #dbeafe; color: #0f172a; font-weight: 700; text-align: center; border: 1px solid #cbd5e1; padding: 10px 12px; }',
     '.cell { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: center; vertical-align: middle; }',
-    '.cell-description { min-width: 320px; max-width: 320px; white-space: normal; word-break: break-word; line-height: 1.35; }',
+    '.cell-description { width: 180px; min-width: 180px; max-width: 180px; white-space: normal; word-break: break-word; line-height: 1.35; }',
     '.cell-url { min-width: 260px; max-width: 260px; }',
     '.cell-url a { color: #1d4ed8; text-decoration: underline; }',
     '</style>',
