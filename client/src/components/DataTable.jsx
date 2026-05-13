@@ -14,21 +14,34 @@ const SummarySkeletonCard = () => (
   </div>
 );
 
-const DataTable = ({ total, estimatedCost, currentBalance, loading, exportLoading, canExport, onExport }) => (
-  <div className="panel overflow-hidden print-hidden">
+const DataTable = ({ total, estimatedCost, currentBalance, loading, refreshing = false, exportLoading, canExport, onExport }) => (
+  <div className="panel overflow-hidden print-hidden" data-tour-id="export-summary">
     <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
       <div>
         <h2 className="panel-title">Export Summary</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        {/* <p className="mt-1 text-sm text-slate-500">
           Filtered row details are hidden here. Full matching product columns will be included only in the exported file.
-        </p>
+        </p> */}
       </div>
-      <button type="button" className="button-primary w-full sm:w-auto" onClick={onExport} disabled={loading || exportLoading || !total || !canExport}>
+      <button
+        type="button"
+        className="button-primary w-full sm:w-auto"
+        onClick={onExport}
+        disabled={loading || exportLoading}
+        data-tour-id="export-button"
+      >
         {exportLoading ? <ExportSpinner /> : total ? `Export Data (${formatCoins(estimatedCost)})` : 'Export Data'}
       </button>
     </div>
 
-    <div className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-3">
+    <div className="relative">
+      {refreshing && !loading ? (
+        <div className="pointer-events-none absolute right-5 top-4 z-10 inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-slate-500 shadow-sm ring-1 ring-slate-200 backdrop-blur">
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+          Updating...
+        </div>
+      ) : null}
+      <div className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-3">
       {loading ? (
         <>
           <SummarySkeletonCard />
@@ -51,14 +64,8 @@ const DataTable = ({ total, estimatedCost, currentBalance, loading, exportLoadin
           </div>
         </>
       )}
-    </div>
-
-    {!loading && total && !canExport ? (
-      <div className="border-t border-rose-100 bg-rose-50 px-4 py-4 text-sm text-rose-700 sm:px-5">
-        Your wallet does not have enough coins. Please recharge your balance before exporting.
       </div>
-    ) : null}
-
+    </div>
     {!loading && !total ? (
       <div className="border-t border-slate-100 px-4 py-4 text-sm text-slate-500 sm:px-5">
         No records found for the selected filters.

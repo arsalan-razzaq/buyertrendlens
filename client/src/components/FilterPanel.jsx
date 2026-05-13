@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { dataHttp, getErrorMessage } from '../api/http';
 
 const OPTION_FETCH_DEBOUNCE_MS = 120;
-const OPTION_RESULT_LIMIT = 250;
+const INITIAL_REMOTE_OPTION_LIMIT = 20;
+const SEARCH_REMOTE_OPTION_LIMIT = 100;
 const OPTION_VISIBLE_LIMIT = 120;
 
 const g2gTextFields = [
@@ -46,7 +47,11 @@ const SearchableSelect = memo(function SearchableSelect({
   queryKey,
   initialOptions = [],
   clientSearch = true,
-  disabled = false
+  fetchOnOpen = true,
+  remoteSearchMinLength = 0,
+  remoteSearchHint = '',
+  disabled = false,
+  tourId = ''
 }) {
   const containerRef = useRef(null);
   const [open, setOpen] = useState(false);
@@ -90,10 +95,29 @@ const SearchableSelect = memo(function SearchableSelect({
     setOptionsReady(Boolean(initialOptions.length || value));
   }, [initialOptions, queryKey, value]);
 
-  const remoteSearchQuery = clientSearch ? '' : searchQuery;
+  const trimmedSearchQuery = searchQuery.trim();
+  const remoteSearchQuery = clientSearch ? '' : trimmedSearchQuery;
+  const shouldFetchRemotely = !clientSearch || !optionsReady || !options.length;
+  const canRunRemoteSearch =
+    clientSearch ||
+    fetchOnOpen ||
+    remoteSearchQuery.length >= remoteSearchMinLength ||
+    (!trimmedSearchQuery && options.length > 0);
 
   useEffect(() => {
     if (!open || disabled) {
+      return undefined;
+    }
+
+    if (!shouldFetchRemotely) {
+      setOptionsLoading(false);
+      setOptionsError('');
+      return undefined;
+    }
+
+    if (!canRunRemoteSearch) {
+      setOptionsLoading(false);
+      setOptionsError('');
       return undefined;
     }
 
@@ -128,17 +152,18 @@ const SearchableSelect = memo(function SearchableSelect({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [disabled, loadOptions, open, queryKey, remoteSearchQuery, value]);
+  }, [canRunRemoteSearch, disabled, loadOptions, open, queryKey, remoteSearchQuery, shouldFetchRemotely, value]);
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const normalizedQuery = trimmedSearchQuery.toLowerCase();
   const visibleOptions = clientSearch
     ? options
         .filter((option) => !normalizedQuery || String(option).toLowerCase().includes(normalizedQuery))
         .slice(0, OPTION_VISIBLE_LIMIT)
     : options;
+  const shouldShowRemoteHint = !clientSearch && !canRunRemoteSearch && !visibleOptions.length && remoteSearchHint;
 
   return (
-    <label className={open ? 'relative z-40' : 'relative'}>
+    <label className={open ? 'relative z-40' : 'relative'} data-tour-id={tourId || undefined}>
       <span className="label">{label}</span>
       <div ref={containerRef} className="relative">
         <button
@@ -179,8 +204,10 @@ const SearchableSelect = memo(function SearchableSelect({
                 Clear selection
               </button>
 
-              {optionsLoading || !optionsReady ? (
+              {optionsLoading && !visibleOptions.length ? (
                 <div className="px-3 py-3 text-sm text-slate-400">{loadingLabel}</div>
+              ) : shouldShowRemoteHint ? (
+                <div className="px-3 py-3 text-sm text-slate-400">{remoteSearchHint}</div>
               ) : visibleOptions.length ? (
                 visibleOptions.map((option) => (
                   <button
@@ -208,19 +235,22 @@ const SearchableSelect = memo(function SearchableSelect({
   );
 });
 
-const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
+const FilterPanel = ({ dataset = 'g2g', filters, onChange, onReset, onOpenTour, loading }) => {
   const optionsCacheRef = useRef(new Map());
+  const pendingOptionsRef = useRef(new Map());
   const isEldorado = dataset === 'eldorado';
 
   useEffect(() => {
     optionsCacheRef.current.clear();
-  }, [dataset, filters.category, filters.gameName, filters.minSellerRank]);
+    pendingOptionsRef.current.clear();
+  }, [dataset, isEldorado]);
 
   const buildOptionParams = useCallback((field, searchQuery = '') => {
+    const normalizedSearchQuery = String(searchQuery || '').trim();
     const params = {
       dataset,
       field,
-      limit: OPTION_RESULT_LIMIT,
+      limit: normalizedSearchQuery ? SEARCH_REMOTE_OPTION_LIMIT : INITIAL_REMOTE_OPTION_LIMIT,
       category: filters.category || '',
       gameName: filters.gameName || '',
       sellerName: filters.sellerName || '',
@@ -228,14 +258,14 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
     };
 
     if (field === 'category') {
-      params.categorySearch = searchQuery;
+      params.categorySearch = normalizedSearchQuery;
       params.gameName = '';
       params.sellerName = '';
     } else if (field === 'game') {
-      params.gameSearch = searchQuery;
+      params.gameSearch = normalizedSearchQuery;
       params.sellerName = '';
     } else if (field === 'seller') {
-      params.sellerSearch = searchQuery;
+      params.sellerSearch = normalizedSearchQuery;
     }
 
     return params;
@@ -251,22 +281,36 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
       return cached;
     }
 
-    const { data } = await dataHttp.get('/filter-options', { params });
-    let resolvedOptions;
-
-    if (field === 'category') {
-      resolvedOptions = Array.isArray(data.categories) ? data.categories : [];
-    } else if (field === 'game') {
-      resolvedOptions = Array.isArray(data.games)
-        ? data.games.map((game) => (typeof game === 'string' ? game : game.name)).filter(Boolean)
-        : [];
-    } else {
-      resolvedOptions = Array.isArray(data.sellers) ? data.sellers : [];
+    const pending = pendingOptionsRef.current.get(cacheKey);
+    if (pending) {
+      return pending;
     }
 
-    const dedupedOptions = Array.from(new Set(resolvedOptions));
-    optionsCacheRef.current.set(cacheKey, dedupedOptions);
-    return dedupedOptions;
+    const request = dataHttp
+      .get('/filter-options', { params })
+      .then(({ data }) => {
+        let resolvedOptions;
+
+        if (field === 'category') {
+          resolvedOptions = Array.isArray(data.categories) ? data.categories : [];
+        } else if (field === 'game') {
+          resolvedOptions = Array.isArray(data.games)
+            ? data.games.map((game) => (typeof game === 'string' ? game : game.name)).filter(Boolean)
+            : [];
+        } else {
+          resolvedOptions = Array.isArray(data.sellers) ? data.sellers : [];
+        }
+
+        const dedupedOptions = Array.from(new Set(resolvedOptions));
+        optionsCacheRef.current.set(cacheKey, dedupedOptions);
+        return dedupedOptions;
+      })
+      .finally(() => {
+        pendingOptionsRef.current.delete(cacheKey);
+      });
+
+    pendingOptionsRef.current.set(cacheKey, request);
+    return request;
   }, [buildOptionParams, getOptionCacheKey]);
 
   const getCachedOptions = useCallback((field, searchQuery = '') => {
@@ -301,21 +345,37 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
     fetchOptionList('game', '').catch(() => {});
   }, [fetchOptionList, filters.category]);
 
+  useEffect(() => {
+    if (!filters.category && !filters.gameName && !filters.minSellerRank) {
+      return;
+    }
+
+    fetchOptionList('seller', '').catch(() => {});
+  }, [fetchOptionList, filters.category, filters.gameName, filters.minSellerRank]);
+
   return (
     <div className="panel relative z-20 p-4 sm:p-5">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="panel-title">Dataset Filters</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          {/* <p className="mt-1 text-sm text-slate-500">
             {isEldorado
               ? 'Eldorado filters are now mapped to the dedicated Eldorado backend on the VPS.'
               : 'Slice the dataset before exporting rows. Changes apply automatically as you type or select.'}
-          </p>
+          </p> */}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className="button-secondary" onClick={onOpenTour}>
+            Guide tour
+          </button>
+          <button type="button" className="button-secondary" onClick={onReset} disabled={loading}>
+            Reset filters
+          </button>
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <label>
+        <label data-tour-id="search-filter">
           <span className="label">{isEldorado ? 'Search by Offer Title' : 'Search by Title'}</span>
           <input
             className="input"
@@ -341,7 +401,8 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           loadingLabel="Loading categories..."
           initialOptions={getCachedOptions('category')}
           clientSearch
-          disabled={loading}
+          disabled={false}
+          tourId="category-filter"
         />
 
         <SearchableSelect
@@ -358,12 +419,15 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           emptyLabel="No games found."
           loadingLabel="Loading games..."
           initialOptions={getCachedOptions('game')}
-          clientSearch
-          disabled={loading}
+          clientSearch={false}
+          fetchOnOpen={Boolean(filters.category)}
+          remoteSearchMinLength={0}
+          disabled={false}
+          tourId="game-filter"
         />
 
         {!isEldorado ? (
-          <label>
+          <label data-tour-id="seller-rank-filter">
             <span className="label">Seller Rank</span>
             <select
               className="input"
@@ -382,7 +446,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
             </select>
           </label>
         ) : (
-          <label className="flex items-end">
+          <label className="flex items-end" data-tour-id="verified-filter">
             <span className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               <input
                 type="checkbox"
@@ -407,12 +471,16 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, loading }) => {
           emptyLabel="No sellers found."
           loadingLabel="Loading sellers..."
           initialOptions={getCachedOptions('seller')}
-          clientSearch
-          disabled={loading}
+          clientSearch={false}
+          fetchOnOpen={Boolean(filters.category || filters.gameName || filters.minSellerRank)}
+          remoteSearchMinLength={1}
+          remoteSearchHint="Type at least 1 character to search sellers."
+          disabled={false}
+          tourId="seller-filter"
         />
 
         {(isEldorado ? eldoradoTextFields : g2gTextFields).map((field) => (
-          <label key={field.key}>
+          <label key={field.key} data-tour-id={field.key === 'priceMin' ? 'numeric-filters' : undefined}>
             <span className="label">{field.label}</span>
             <input
               className="input"

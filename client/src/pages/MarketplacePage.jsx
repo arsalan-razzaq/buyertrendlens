@@ -3,6 +3,7 @@ import http, { dataHttp, getErrorMessage } from '../api/http';
 import DataTable from '../components/DataTable';
 import ExportModal from '../components/ExportModal';
 import FilterPanel from '../components/FilterPanel';
+import GuidedTour from '../components/GuidedTour';
 import { useAuth } from '../hooks/useAuth';
 import { buildBrandedExportFilename, downloadBlob, formatCoins } from '../utils/format';
 
@@ -34,10 +35,12 @@ const MarketplacePage = ({ dataset }) => {
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [datasetSummary, setDatasetSummary] = useState({ total: 0 });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [tourOpen, setTourOpen] = useState(true);
 
   const downloadSavedExport = async (exportId, fallbackFilename) => {
     const response = await http.get(`/export/${exportId}/download`, {
@@ -69,6 +72,8 @@ const MarketplacePage = ({ dataset }) => {
     setPreview(null);
     setMessage('');
     setError('');
+    setRefreshing(false);
+    setTourOpen(true);
   }, [dataset]);
 
   useEffect(() => {
@@ -88,7 +93,12 @@ const MarketplacePage = ({ dataset }) => {
   }, [refreshProfile]);
 
   const fetchData = async (requestedFilters = appliedFilters) => {
-    setLoading(true);
+    const hasSummary = Number.isFinite(datasetSummary.total);
+    if (loading || !hasSummary) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     setError('');
 
     try {
@@ -107,6 +117,7 @@ const MarketplacePage = ({ dataset }) => {
       setDatasetSummary({ total: 0 });
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -135,11 +146,20 @@ const MarketplacePage = ({ dataset }) => {
 
   const openExportModal = async (format = 'xls') => {
     setError('');
+    setMessage('');
     try {
       await refreshProfile();
       const { data } = await dataHttp.post('/export/preview', { dataset, ...appliedFilters, format });
+
+      if ((Number(data?.totalRows) || 0) <= 0) {
+        setPreview(null);
+        setError('No rows match the selected filters. Adjust the filters and try again.');
+        return;
+      }
+
       setPreview({ ...data, format });
     } catch (previewError) {
+      setPreview(null);
       setError(getErrorMessage(previewError));
     }
   };
@@ -147,6 +167,7 @@ const MarketplacePage = ({ dataset }) => {
   const handleExport = async ({ format = 'xls', rememberChoice = false } = {}) => {
     setExportLoading(true);
     setError('');
+    setMessage('');
 
     try {
       const { data } = await dataHttp.post('/export', { dataset, ...appliedFilters, format });
@@ -168,9 +189,98 @@ const MarketplacePage = ({ dataset }) => {
 
   const estimatedCost = Number((datasetSummary.total * COIN_COST_PER_ROW).toFixed(2));
   const canExport = datasetSummary.total > 0 && (user?.coins ?? 0) >= estimatedCost;
+  const tourSteps = dataset === 'eldorado'
+    ? [
+        {
+          selector: '[data-tour-id="export-summary"]',
+          title: 'Eldorado export summary',
+          description: 'This section shows the live total rows, export cost, and wallet balance for the currently selected Eldorado filters. It updates automatically after every filter change.'
+        },
+        {
+          selector: '[data-tour-id="search-filter"]',
+          title: 'Title search',
+          description: 'Use this when you already know the offer title or a keyword. It is the fastest way to narrow a broad list immediately.'
+        },
+        {
+          selector: '[data-tour-id="category-filter"]',
+          title: 'Category type',
+          description: 'Select the category type first. This tells the backend which product family to search in and keeps the remaining options relevant.'
+        },
+        {
+          selector: '[data-tour-id="game-filter"]',
+          title: 'Game selection',
+          description: 'The game field is the most important filter after category. Choosing a specific game makes both the seller list and export count much more accurate.'
+        },
+        {
+          selector: '[data-tour-id="verified-filter"]',
+          title: 'Verified sellers only',
+          description: 'Turn this on to show only verified Eldorado sellers. It is useful when you want a trust-focused shortlist.'
+        },
+        {
+          selector: '[data-tour-id="seller-filter"]',
+          title: 'Seller lookup',
+          description: 'The Seller Name field uses remote search. Type at least one character to load matching sellers and lock the dataset to a specific seller.'
+        },
+        {
+          selector: '[data-tour-id="numeric-filters"]',
+          title: 'Price range filters',
+          description: 'Use Min Price and Max Price to control the export by budget or pricing band. This is useful when you only want premium or low-cost offers.'
+        },
+        {
+          selector: '[data-tour-id="export-button"]',
+          title: 'Export flow',
+          description: 'Once the totals look right, use Export Data to start the preview and file generation flow. The cost is deducted from the wallet based on matching rows.'
+        }
+      ]
+    : [
+        {
+          selector: '[data-tour-id="export-summary"]',
+          title: 'G2G export summary',
+          description: 'This section shows how many rows match the current G2G filters, the estimated export cost, and the available wallet balance.'
+        },
+        {
+          selector: '[data-tour-id="search-filter"]',
+          title: 'Quick title search',
+          description: 'If you already know the account title or a keyword, use this field to narrow the results directly. It works as a quick shortcut before broader filtering.'
+        },
+        {
+          selector: '[data-tour-id="category-filter"]',
+          title: 'Category filter',
+          description: 'Choosing a category segments the data stream, such as accounts or other product types. Setting this first makes the remaining filters more relevant.'
+        },
+        {
+          selector: '[data-tour-id="game-filter"]',
+          title: 'Game name filter',
+          description: 'The Game Name field narrows the selected category to a specific game. Once a game is selected, unnecessary results drop significantly.'
+        },
+        {
+          selector: '[data-tour-id="seller-rank-filter"]',
+          title: 'Seller rank filter',
+          description: 'Seller Rank lets you control the quality tier, from normal seller up to legendary seller. Higher rank filtering is useful when targeting premium sellers.'
+        },
+        {
+          selector: '[data-tour-id="seller-filter"]',
+          title: 'Seller search',
+          description: 'Use Seller Name to lock the results to a specific vendor. After setting rank, category, and game, seller search returns much cleaner results.'
+        },
+        {
+          selector: '[data-tour-id="numeric-filters"]',
+          title: 'Advanced numeric filters',
+          description: 'Use fields like price, rating, user level, score, and orders sold to refine the shortlist aggressively. These filters are most useful when you want a high-intent export.'
+        },
+        {
+          selector: '[data-tour-id="export-button"]',
+          title: 'Export final data',
+          description: 'The Export Data button opens the preview and generates the approved file. The final export includes only the rows currently matching the filters.'
+        }
+      ];
+
+  const closeTour = () => {
+    setTourOpen(false);
+  };
 
   const handleExportClick = async () => {
-    if (skipExportConfirmation) {
+    if (skipExportConfirmation && canExport) {
       await handleExport({ format: savedExportFormat });
       return;
     }
@@ -192,6 +302,7 @@ const MarketplacePage = ({ dataset }) => {
         estimatedCost={estimatedCost}
         currentBalance={user?.coins ?? 0}
         loading={loading}
+        refreshing={refreshing}
         exportLoading={exportLoading}
         canExport={canExport}
         onExport={handleExportClick}
@@ -201,6 +312,7 @@ const MarketplacePage = ({ dataset }) => {
         filters={filters}
         onChange={updateFilter}
         onReset={handleReset}
+        onOpenTour={() => setTourOpen(true)}
         loading={loading}
       />
 
@@ -209,6 +321,12 @@ const MarketplacePage = ({ dataset }) => {
         loading={exportLoading}
         onClose={() => setPreview(null)}
         onConfirm={handleExport}
+      />
+      <GuidedTour
+        open={tourOpen}
+        steps={tourSteps}
+        onClose={closeTour}
+        onComplete={closeTour}
       />
     </div>
   );
