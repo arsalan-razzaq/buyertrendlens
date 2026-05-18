@@ -32,6 +32,15 @@ const MarketplaceAltIcon = () => (
   </svg>
 );
 
+const RocketIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M5 19c2.5-.5 4.5-2.5 5-5" />
+    <path d="M15 9l-3 3" />
+    <path d="M12 12 7 17l-2 2" />
+    <path d="M14 4c2.8 0 5 2.2 5 5 0 4-3 7-7 7h-1l-5 5v-5l-1-1c0-4 3-7 7-7h2Z" />
+  </svg>
+);
+
 const WalletIcon = () => (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a2 2 0 0 1 2 2v1H5.5A2.5 2.5 0 0 0 3 10.5v-3Z" />
@@ -82,6 +91,8 @@ const userNavItems = [
   { label: 'Dashboard', path: '/dashboard', hint: 'Overview', icon: <DashboardIcon /> },
   { label: 'G2g', path: '/g2g', hint: 'Data', icon: <DataIcon /> },
   { label: 'Eldorado', path: '/eldorado', hint: 'Data', icon: <MarketplaceAltIcon /> },
+  { label: 'Player Auction', hint: 'Data', icon: <RocketIcon />, comingSoon: true },
+  { label: 'Gameboost', hint: 'Data', icon: <RocketIcon />, comingSoon: true },
   { label: 'Wallet', path: '/wallet', hint: 'Connection', icon: <WalletIcon /> },
   { label: 'Support', path: '/support', hint: 'Help', icon: <SupportIcon /> }
 ];
@@ -98,6 +109,7 @@ const DashboardLayout = () => {
   const { user, isAdmin, logout } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [comingSoonItem, setComingSoonItem] = useState(null);
   const currentTitle = userNavItems.find((item) => item.path === location.pathname)?.label || 'Dashboard';
   const userInitials = getUserInitials(user?.name);
   const navItemClassName = ({ isActive }) =>
@@ -120,6 +132,29 @@ const DashboardLayout = () => {
           className="fixed inset-0 z-40 bg-slate-950/55 xl:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
+      ) : null}
+      {comingSoonItem ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/65 px-4" onClick={() => setComingSoonItem(null)}>
+          <div
+            className="w-full max-w-sm rounded-[28px] border border-slate-200/10 bg-[#081127] p-6 text-white shadow-[0_32px_80px_rgba(2,6,23,0.55)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/10 text-amber-200">
+              <RocketIcon />
+            </div>
+            <h3 className="mt-4 text-xl font-semibold tracking-[-0.03em]">{comingSoonItem.label}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              This section is coming soon. We will enable it once the dataset and flow are ready.
+            </p>
+            <button
+              type="button"
+              className="mt-6 inline-flex w-full items-center justify-center rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/15"
+              onClick={() => setComingSoonItem(null)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
       ) : null}
 
       <div className="grid min-h-screen xl:grid-cols-[255px_minmax(0,1fr)]">
@@ -146,22 +181,39 @@ const DashboardLayout = () => {
             <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">Navigation</p>
             <div className="mt-4 grid gap-1">
               {userNavItems.map((item) => (
-                <NavLink
-                  key={item.label}
-                  to={item.path}
-                  end={item.path === '/dashboard'}
-                  className={navItemClassName}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className={`${location.pathname === item.path ? 'text-[#8cebdd]' : 'text-slate-500'}`}>{item.icon}</span>
-                      <span>{item.label}</span>
+                item.comingSoon ? (
+                  <button
+                    type="button"
+                    key={item.label}
+                    className="w-full rounded-2xl px-4 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+                    onClick={() => setComingSoonItem(item)}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-slate-500">{item.icon}</span>
+                        <span>{item.label}</span>
+                      </div>
+                      <span className="text-xs text-slate-500">{item.hint}</span>
                     </div>
-                    <span className={`${location.pathname === item.path ? 'text-[#8cebdd]' : 'text-slate-500'} text-xs`}>
-                      {item.hint}
-                    </span>
-                  </div>
-                </NavLink>
+                  </button>
+                ) : (
+                  <NavLink
+                    key={item.label}
+                    to={item.path}
+                    end={item.path === '/dashboard'}
+                    className={navItemClassName}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className={`${location.pathname === item.path ? 'text-[#8cebdd]' : 'text-slate-500'}`}>{item.icon}</span>
+                        <span>{item.label}</span>
+                      </div>
+                      <span className={`${location.pathname === item.path ? 'text-[#8cebdd]' : 'text-slate-500'} text-xs`}>
+                        {item.hint}
+                      </span>
+                    </div>
+                  </NavLink>
+                )
               ))}
 
               {isAdmin ? (

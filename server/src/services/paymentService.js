@@ -5,7 +5,7 @@ const createPaymentReference = () =>
   `PAY-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
 const calculateCoinsFromAmount = (amount) => {
-  const conversionRate = Number(process.env.COINS_PER_USDT || 100);
+  const conversionRate = Number(process.env.COINS_PER_USDT || 1000);
   return Number((amount * conversionRate).toFixed(2));
 };
 

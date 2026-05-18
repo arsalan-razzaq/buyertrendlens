@@ -17,10 +17,16 @@ const REMOTE_FILTER_KEYS = [
 ];
 const REMOTE_DATASET_MAX_LIMIT = 100;
 const FILTER_OPTIONS_CACHE_TTL_SECONDS = Math.max(Number(process.env.REMOTE_FILTER_OPTIONS_CACHE_TTL_SECONDS) || 600, 30);
+const CATEGORY_META_CACHE_TTL_SECONDS = Math.max(Number(process.env.REMOTE_CATEGORY_META_CACHE_TTL_SECONDS) || 1800, 60);
 const filterOptionsCache = new NodeCache({
   stdTTL: FILTER_OPTIONS_CACHE_TTL_SECONDS,
   useClones: false
 });
+const categoryMetaCache = new NodeCache({
+  stdTTL: CATEGORY_META_CACHE_TTL_SECONDS,
+  useClones: false
+});
+const pendingCategoryMetaRequests = new Map();
 const isEnabled = (value) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 
 const getFilterOptionsCacheKey = (dataset, params) =>
@@ -28,6 +34,108 @@ const getFilterOptionsCacheKey = (dataset, params) =>
     dataset,
     ...params
   });
+
+const shouldIncludeOptionField = (requestedField, field) => !requestedField || requestedField === field;
+
+const normalizeSearchValue = (value = '') => String(value || '').trim().toLowerCase();
+
+const matchesSearch = (value = '', query = '', matchFromStart = false) => {
+  const normalizedValue = normalizeSearchValue(value);
+  const normalizedQuery = normalizeSearchValue(query);
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return matchFromStart
+    ? normalizedValue.startsWith(normalizedQuery)
+    : normalizedValue.includes(normalizedQuery);
+};
+
+const buildOptionResult = ({ requestedField = '', categories = [], games = [], sellers = [] } = {}) => ({
+  categories: shouldIncludeOptionField(requestedField, 'category') ? categories : [],
+  games: shouldIncludeOptionField(requestedField, 'game') ? games : [],
+  sellers: shouldIncludeOptionField(requestedField, 'seller') ? sellers : []
+});
+
+const normalizeEldoradoCategoryType = (value = '') => {
+  const normalizedValue = String(value || '').trim().toLowerCase();
+
+  if (!normalizedValue) {
+    return '';
+  }
+
+  if (['account', 'accounts'].includes(normalizedValue)) {
+    return 'account';
+  }
+
+  if (['currency', 'currencies'].includes(normalizedValue)) {
+    return 'currency';
+  }
+
+  if (['item', 'items', 'customitem', 'custom item'].includes(normalizedValue)) {
+    return 'items';
+  }
+
+  if (['giftcard', 'gift card', 'gift cards'].includes(normalizedValue)) {
+    return 'gift card';
+  }
+
+  if (['topup', 'top up', 'top-ups', 'top ups'].includes(normalizedValue)) {
+    return 'top up';
+  }
+
+  return normalizedValue;
+};
+
+const getEldoradoCategoryPageSegment = (value = '') => {
+  switch (String(value || '').trim().toLowerCase()) {
+    case 'account':
+    case 'accounts':
+      return 'a';
+    case 'customitem':
+    case 'custom item':
+    case 'item':
+    case 'items':
+      return 'i';
+    case 'topup':
+    case 'top up':
+      return 't';
+    case 'requestedboosting':
+    case 'boosting':
+      return 'b';
+    case 'giftcard':
+    case 'gift card':
+    case 'gift cards':
+      return 'v';
+    case 'currency':
+    case 'currencies':
+      return 'g';
+    default:
+      return '';
+  }
+};
+
+const getEldoradoOfferSegment = (value = '') => {
+  const pageSegment = getEldoradoCategoryPageSegment(value);
+  return pageSegment ? `o${pageSegment}` : '';
+};
+
+const eldoradoCategoryMatches = (selectedCategory = '', item = {}) => {
+  const normalizedSelectedCategory = normalizeEldoradoCategoryType(selectedCategory);
+
+  if (!normalizedSelectedCategory) {
+    return true;
+  }
+
+  const candidateValues = [
+    item?.title,
+    item?.category,
+    item?.game_category_title
+  ];
+
+  return candidateValues.some((value) => normalizeEldoradoCategoryType(value) === normalizedSelectedCategory);
+};
 
 const getDatasetConfig = (dataset = 'g2g') => {
   const normalizedDataset = String(dataset || 'g2g').trim().toLowerCase();
@@ -255,6 +363,67 @@ const parseRemoteProductsPayload = async (response) => {
   };
 };
 
+const getCategoryMetaCacheKey = (dataset, category) =>
+  JSON.stringify({
+    dataset,
+    category: String(category || '').trim().toLowerCase()
+  });
+
+const fetchRemoteCategoryMeta = async ({ dataset = 'g2g', category = '', headers = null, timeoutMs = 30000 } = {}) => {
+  const normalizedCategory = String(category || '').trim();
+
+  if (!normalizedCategory) {
+    return null;
+  }
+
+  const cacheKey = getCategoryMetaCacheKey(dataset, normalizedCategory);
+  const cached = categoryMetaCache.get(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  const pending = pendingCategoryMetaRequests.get(cacheKey);
+  if (pending) {
+    return pending;
+  }
+
+  const categoryOptionsUrl = getRemoteCategoryOptionsApiUrl(dataset);
+
+  if (!categoryOptionsUrl) {
+    return null;
+  }
+
+  const categoryUrl = new URL(categoryOptionsUrl);
+  categoryUrl.searchParams.set('type', normalizedCategory);
+
+  const request = fetch(categoryUrl, {
+    headers: headers || { Accept: 'application/json' },
+    signal: AbortSignal.timeout(timeoutMs)
+  })
+    .then(async (response) => {
+      const payload = await parseRemotePayload(response);
+
+      if (!response.ok) {
+        throw new Error(
+          payload.message ||
+            payload.error ||
+            `Remote category metadata request failed with status ${response.status}.`
+        );
+      }
+
+      const categoryData = payload?.data || payload || {};
+      categoryMetaCache.set(cacheKey, categoryData);
+      return categoryData;
+    })
+    .finally(() => {
+      pendingCategoryMetaRequests.delete(cacheKey);
+    });
+
+  pendingCategoryMetaRequests.set(cacheKey, request);
+  return request;
+};
+
 const formatRemoteProductUrl = (value) => {
   const normalized = String(value || '').trim();
 
@@ -275,25 +444,121 @@ const formatRemoteProductUrl = (value) => {
   return '';
 };
 
-const formatEldoradoMarketplaceUrl = (value) => {
+const extractG2GCategorySlugFromUrl = (value = '') => {
   const normalized = String(value || '').trim();
 
   if (!normalized) {
     return '';
   }
 
-  if (/^https?:\/\//i.test(normalized)) {
-    return normalized;
+  try {
+    const url = /^https?:\/\//i.test(normalized)
+      ? new URL(normalized)
+      : new URL(`https://www.g2g.com/${normalized.replace(/^\/+/, '')}`);
+    const match = url.pathname.match(/\/categories\/([^/?#]+)(?:\/offer\/[^/?#]+)?/i);
+    return match?.[1] ? String(match[1]).trim() : '';
+  } catch (error) {
+    const cleaned = normalized.replace(/^https?:\/\/[^/]+/i, '').replace(/^\/+/, '');
+    const match = cleaned.match(/^categories\/([^/?#]+)(?:\/offer\/[^/?#]+)?/i);
+    return match?.[1] ? String(match[1]).trim() : '';
+  }
+};
+
+const buildG2GOfferUrl = ({
+  offerId = '',
+  offerGroup = '',
+  recordId = '',
+  categorySlug = '',
+  rawUrl = ''
+} = {}) => {
+  const normalizedOfferId = String(offerId || '').trim();
+  const normalizedOfferGroup = String(offerGroup || '').trim();
+  const normalizedRecordId = String(recordId || '').trim();
+  const normalizedCategorySlug =
+    String(categorySlug || '').trim().replace(/^\/+|\/+$/g, '') || extractG2GCategorySlugFromUrl(rawUrl);
+  const normalizedRawUrl = String(rawUrl || '').trim();
+
+  if (normalizedOfferId && normalizedCategorySlug) {
+    return `https://www.g2g.com/categories/${normalizedCategorySlug}/offer/${normalizedOfferId}`;
   }
 
-  return `https://www.eldorado.gg/${normalized.replace(/^\/+/, '')}`;
+  if (normalizedOfferId) {
+    return `https://www.g2g.com/offer/${normalizedOfferId}`;
+  }
+
+  if (normalizedOfferGroup) {
+    return `https://www.g2g.com/offer/${normalizedOfferGroup}`;
+  }
+
+  if (normalizedRecordId) {
+    return `https://www.g2g.com/offer/${normalizedRecordId}`;
+  }
+
+  if (normalizedCategorySlug) {
+    return `https://www.g2g.com/categories/${normalizedCategorySlug}`;
+  }
+
+  if (/^https?:\/\//i.test(normalizedRawUrl)) {
+    return normalizedRawUrl;
+  }
+
+  return formatRemoteProductUrl(normalizedRawUrl);
+};
+
+const normalizeG2GDatasetRecord = (record = {}) => ({
+  ...record,
+  productUrl: buildG2GOfferUrl({
+    offerId: record.offerId || record.offer_id || '',
+    offerGroup: record.groupName || record.offer_group || '',
+    recordId: record._id || record.id || '',
+    categorySlug: record.resolved_category_slug || '',
+    rawUrl: record.productUrl || record.url || ''
+  })
+});
+
+const formatEldoradoMarketplaceUrl = (record = {}) => {
+  const normalizedCategory = String(record.category || record.category_name || '')
+    .trim()
+    .toLowerCase();
+  const normalizedUrl = String(record.marketplace_url || '').trim();
+  const normalizedSlug = String(record.game_seo_alias || '').trim().replace(/^\/+|\/+$/g, '');
+  const normalizedOfferId = String(record.offer_id || record.offerId || '').trim();
+  const normalizedGameId = String(record.game_id || '').trim();
+  const normalizedLegacyUrlId = String(
+    record.category_legacy_url_id || record.legacy_url_id || ''
+  ).trim();
+  const pageSegment = getEldoradoCategoryPageSegment(normalizedCategory);
+  const offerSegment = getEldoradoOfferSegment(normalizedCategory);
+
+  if (normalizedSlug && normalizedOfferId && offerSegment) {
+    return `https://www.eldorado.gg/${normalizedSlug}/${offerSegment}/${encodeURIComponent(normalizedOfferId)}`;
+  }
+
+  if (/^https?:\/\//i.test(normalizedUrl)) {
+    return normalizedUrl;
+  }
+
+  if (normalizedUrl) {
+    return `https://www.eldorado.gg/${normalizedUrl.replace(/^\/+/, '')}`;
+  }
+
+  if (normalizedSlug && pageSegment) {
+    const resourceId = normalizedLegacyUrlId || normalizedGameId;
+
+    if (resourceId) {
+      return `https://www.eldorado.gg/${normalizedSlug}/${pageSegment}/${resourceId}`;
+    }
+  }
+
+  return '';
 };
 
 const transformEldoradoRecord = (record = {}) => ({
   _id: String(record.id ?? record.offer_id ?? ''),
   title: String(record.offer_title || ''),
+  description: String(record.offer_description || record.ai_generated_description || record.seller_description || ''),
   category: String(record.category || record.category_name || ''),
-  gameName: String(record.category_title || record.category_name || ''),
+  gameName: String(record.category_name || record.category_title || ''),
   sellerName: String(record.seller_username || ''),
   price: Number(record.price_usd_amount ?? record.price_amount ?? 0),
   rating: Number(record.seller_verified ? 1 : 0),
@@ -306,7 +571,7 @@ const transformEldoradoRecord = (record = {}) => ({
   updatedAt: record.updated_at || '',
   offerId: String(record.offer_id || ''),
   productName: String(record.offer_title || ''),
-  productUrl: formatEldoradoMarketplaceUrl(record.marketplace_url),
+  productUrl: formatEldoradoMarketplaceUrl(record),
   priceAmount: Number(record.price_amount ?? 0),
   priceUsdAmount: Number(record.price_usd_amount ?? 0),
   priceCurrency: String(record.price_currency || ''),
@@ -316,7 +581,8 @@ const transformEldoradoRecord = (record = {}) => ({
   sellerVerified: Boolean(record.seller_verified),
   categoryName: String(record.category_name || ''),
   categoryTitle: String(record.category_title || ''),
-  marketplaceUrl: formatEldoradoMarketplaceUrl(record.marketplace_url)
+  categoryLegacyUrlId: String(record.category_legacy_url_id || record.legacy_url_id || ''),
+  marketplaceUrl: formatEldoradoMarketplaceUrl(record)
 });
 
 const buildEldoradoQuery = (filters = {}, page = 1) => {
@@ -430,7 +696,7 @@ const fetchRemoteDataset = async ({ dataset = 'g2g', filters = {}, page = 1, lim
     );
   }
 
-  const records = Array.isArray(payload.records) ? payload.records : [];
+  const records = (Array.isArray(payload.records) ? payload.records : []).map(normalizeG2GDatasetRecord);
   const total = Number(payload.total) || 0;
   const payloadLimit = Number(payload.limit) || (paginate ? resolvedLimit : records.length || total);
 
@@ -483,12 +749,13 @@ const fetchRemoteFilterOptions = async ({
 
     const url = new URL(apiUrl);
     const query = {
-      category: normalizedParams.category,
+      category: normalizedParams.requestedField === 'game' ? '' : normalizedParams.category,
       game_name: normalizedParams.gameName,
       seller_name: normalizedParams.sellerName,
       category_search: normalizedParams.categorySearch,
       game_search: normalizedParams.gameSearch,
       seller_search: normalizedParams.sellerSearch,
+      field: normalizedParams.requestedField,
       limit: String(normalizedParams.limit)
     };
 
@@ -526,22 +793,22 @@ const fetchRemoteFilterOptions = async ({
     const normalizedGameSearch = normalizedParams.gameSearch.toLowerCase();
     const normalizedSellerSearch = normalizedParams.sellerSearch.toLowerCase();
     const rawCategories = Array.isArray(data.categories) ? data.categories : [];
-    const selectedCategory = normalizedParams.category.toLowerCase();
     const selectedGame = normalizedParams.gameName.toLowerCase();
     const categories = (Array.isArray(data.categoryTypes) ? data.categoryTypes : [])
       .map((item) => String(item || '').trim())
       .filter(Boolean)
-      .filter((item) => !normalizedCategorySearch || item.toLowerCase().includes(normalizedCategorySearch))
+      .filter((item) => matchesSearch(item, normalizedCategorySearch))
       .slice(0, normalizedParams.limit);
 
     const games = rawCategories
       .map((item) => ({
         category: String(item?.category || '').trim(),
+        title: String(item?.title || '').trim(),
         name: String(item?.name || '').trim()
       }))
       .filter((item) => item.name)
-      .filter((item) => !selectedCategory || item.category.toLowerCase() === selectedCategory)
-      .filter((item) => !normalizedGameSearch || item.name.toLowerCase().includes(normalizedGameSearch))
+      .filter((item) => eldoradoCategoryMatches(normalizedParams.category, item))
+      .filter((item) => matchesSearch(item.name, normalizedGameSearch, true))
       .filter((item, index, list) => list.findIndex((candidate) => candidate.name.toLowerCase() === item.name.toLowerCase()) === index)
       .slice(0, normalizedParams.limit)
       .map((item) => ({
@@ -554,14 +821,15 @@ const fetchRemoteFilterOptions = async ({
     const sellers = (Array.isArray(data.sellers) ? data.sellers : [])
       .map((item) => String(item || '').trim())
       .filter(Boolean)
-      .filter((item) => !normalizedSellerSearch || item.toLowerCase().includes(normalizedSellerSearch))
+      .filter((item) => matchesSearch(item, normalizedSellerSearch, true))
       .slice(0, normalizedParams.limit);
 
-    const result = {
+    const result = buildOptionResult({
+      requestedField: normalizedParams.requestedField,
       categories,
       games,
       sellers
-    };
+    });
 
     filterOptionsCache.set(cacheKey, result);
     return result;
@@ -582,35 +850,16 @@ const fetchRemoteFilterOptions = async ({
     headers['X-Dataset-Key'] = config.apiKey;
   }
 
-  const shouldUseCategoryMetaOnly =
-    normalizedParams.requestedField === 'game' &&
-    Boolean(normalizedParams.category) &&
-    !normalizedParams.sellerName &&
-    !normalizedParams.minSellerRank;
-  const shouldFetchCategoryMeta = normalizedParams.requestedField === 'game' && Boolean(normalizedParams.category);
-  const categoryOptionsUrl = shouldFetchCategoryMeta ? getRemoteCategoryOptionsApiUrl(dataset) : '';
-  const categoryUrl = categoryOptionsUrl ? new URL(categoryOptionsUrl) : null;
+  const shouldUseCategoryMetaOnly = false;
+  const shouldFetchCategoryMeta = false;
 
-  if (categoryUrl && normalizedParams.category) {
-    categoryUrl.searchParams.set('type', normalizedParams.category);
-  }
-
-  if (shouldUseCategoryMetaOnly && categoryUrl) {
-    const categoryResponse = await fetch(categoryUrl, {
+  if (shouldUseCategoryMetaOnly && shouldFetchCategoryMeta) {
+    const categoryData = await fetchRemoteCategoryMeta({
+      dataset,
+      category: normalizedParams.category,
       headers,
-      signal: AbortSignal.timeout(config.timeoutMs)
+      timeoutMs: config.timeoutMs
     });
-    const categoryPayload = await parseRemotePayload(categoryResponse);
-
-    if (!categoryResponse.ok) {
-      throw new Error(
-        categoryPayload.message ||
-          categoryPayload.error ||
-          `Remote category metadata request failed with status ${categoryResponse.status}.`
-      );
-    }
-
-    const categoryData = categoryPayload?.data || categoryPayload || {};
     const categoryGames = Array.isArray(categoryData.categories_meta) ? categoryData.categories_meta : [];
     const normalizedGameSearch = normalizedParams.gameSearch.toLowerCase();
     const seenGames = new Set();
@@ -624,7 +873,7 @@ const fetchRemoteFilterOptions = async ({
         continue;
       }
 
-      if (normalizedGameSearch && !normalizedName.includes(normalizedGameSearch)) {
+      if (!matchesSearch(name, normalizedGameSearch, true)) {
         continue;
       }
 
@@ -646,11 +895,10 @@ const fetchRemoteFilterOptions = async ({
     }
 
     if (games.length) {
-      const categoryOnlyResult = {
-        categories: [],
-        games,
-        sellers: []
-      };
+      const categoryOnlyResult = buildOptionResult({
+        requestedField: normalizedParams.requestedField,
+        games
+      });
 
       filterOptionsCache.set(cacheKey, categoryOnlyResult);
       return categoryOnlyResult;
@@ -666,6 +914,7 @@ const fetchRemoteFilterOptions = async ({
     category_search: normalizedParams.categorySearch,
     game_search: normalizedParams.gameSearch,
     seller_search: normalizedParams.sellerSearch,
+    field: normalizedParams.requestedField,
     limit: String(normalizedParams.limit)
   };
 
@@ -680,14 +929,16 @@ const fetchRemoteFilterOptions = async ({
       headers,
       signal: AbortSignal.timeout(config.timeoutMs)
     }),
-    categoryUrl
-      ? fetch(categoryUrl, {
+    shouldFetchCategoryMeta
+      ? fetchRemoteCategoryMeta({
+          dataset,
+          category: normalizedParams.category,
           headers,
-          signal: AbortSignal.timeout(config.timeoutMs)
+          timeoutMs: config.timeoutMs
         })
-          .then(async (categoryResponse) => ({
-            ok: categoryResponse.ok,
-            payload: await parseRemotePayload(categoryResponse)
+          .then((categoryData) => ({
+            ok: Boolean(categoryData),
+            payload: categoryData
           }))
           .catch(() => null)
       : Promise.resolve(null)
@@ -718,7 +969,7 @@ const fetchRemoteFilterOptions = async ({
 
   if (categoryMetaResult?.ok) {
     try {
-      const categoryData = categoryMetaResult.payload?.data || categoryMetaResult.payload || {};
+      const categoryData = categoryMetaResult.payload || {};
       const categoryGames = Array.isArray(categoryData.categories_meta) ? categoryData.categories_meta : [];
       const nextGames = [];
       const seenGames = new Set();
@@ -732,7 +983,7 @@ const fetchRemoteFilterOptions = async ({
           continue;
         }
 
-        if (normalizedGameSearch && !normalizedName.includes(normalizedGameSearch)) {
+        if (!matchesSearch(name, normalizedGameSearch, true)) {
           continue;
         }
 
@@ -757,11 +1008,12 @@ const fetchRemoteFilterOptions = async ({
     }
   }
 
-  const result = {
+  const result = buildOptionResult({
+    requestedField: normalizedParams.requestedField,
     categories: Array.isArray(data.categories) ? data.categories.slice(0, normalizedParams.limit) : [],
     games: normalizedGames.slice(0, normalizedParams.limit),
     sellers: Array.isArray(data.sellers) ? data.sellers.slice(0, normalizedParams.limit) : []
-  };
+  });
 
   filterOptionsCache.set(cacheKey, result);
   return result;
@@ -794,17 +1046,30 @@ const fetchAllRemoteDatasetRecords = async (filters = {}, dataset = 'g2g') => {
     return records.slice(0, total);
   }
 
+  const remainingPages = [];
   for (let page = 2; page <= totalPages; page += 1) {
-    const payload = await fetchRemoteDataset({
-      dataset,
-      filters,
-      page,
-      limit: pageSize,
-      paginate: true
-    });
+    remainingPages.push(page);
+  }
 
-    if (Array.isArray(payload.records) && payload.records.length) {
-      records.push(...payload.records);
+  const concurrency = 5;
+  for (let index = 0; index < remainingPages.length; index += concurrency) {
+    const pageChunk = remainingPages.slice(index, index + concurrency);
+    const payloads = await Promise.all(
+      pageChunk.map((page) =>
+        fetchRemoteDataset({
+          dataset,
+          filters,
+          page,
+          limit: pageSize,
+          paginate: true
+        })
+      )
+    );
+
+    for (const payload of payloads) {
+      if (Array.isArray(payload.records) && payload.records.length) {
+        records.push(...payload.records);
+      }
     }
 
     if (records.length >= total) {
@@ -902,7 +1167,16 @@ const mergeNormalizedAndRawProduct = (record, rawProduct) => {
     offerId: rawProduct.offer_id || '',
     brandId: rawProduct.brand_id || '',
     productName: rawProduct.name || '',
-    productUrl: formatRemoteProductUrl(rawProduct.url) || formatRemoteProductUrl(record.productUrl) || record.productUrl || '',
+    productUrl:
+      buildG2GOfferUrl({
+        offerId: rawProduct.offer_id || '',
+        offerGroup: rawProduct.offer_group || record.groupName || '',
+        recordId: rawProduct.id || record._id || '',
+        categorySlug: rawProduct.resolved_category_slug || '',
+        rawUrl: rawProduct.url || record.productUrl || ''
+      }) ||
+      record.productUrl ||
+      '',
     totalOffer: Number(rawProduct.total_offer) || 0,
     displayCurrency: rawProduct.display_currency || '',
     displayPrice: rawProduct.display_price || '',
@@ -912,6 +1186,7 @@ const mergeNormalizedAndRawProduct = (record, rawProduct) => {
     description: rawProduct.description || '',
     deliverySpeed: rawProduct.delivery_speed || '',
     totalRating: Number(rawProduct.total_rating) || 0,
+    rating: Number(rawProduct.total_rating) || Number(record.rating) || 0,
     status: rawProduct.status || '',
     sellerId: rawProduct.seller_id || '',
     isOnline: Number(rawProduct.is_online) || 0,

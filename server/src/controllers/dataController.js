@@ -42,6 +42,8 @@ const clampOptionLimit = (value) => {
   return Math.min(Math.max(Math.trunc(parsed), 1), 250);
 };
 
+const shouldIncludeOptionField = (requestedField, field) => !requestedField || requestedField === field;
+
 const assertLocalDatasetSupported = (dataset, res) => {
   if (dataset !== 'g2g') {
     res.status(501);
@@ -51,7 +53,7 @@ const assertLocalDatasetSupported = (dataset, res) => {
 
 const createDistinctPipeline = (
   field,
-  { equals = '', contains = '', category = '', gameName = '', sellerName = '', sellerRank = '', limit = 100 } = {}
+  { equals = '', contains = '', startsWith = '', category = '', gameName = '', sellerName = '', sellerRank = '', limit = 100 } = {}
 ) => {
   const match = {
     [field]: { $exists: true, $ne: null }
@@ -122,6 +124,14 @@ const createDistinctPipeline = (
     pipeline.push({
       $match: {
         __value: { $regex: escapeRegex(contains), $options: 'i' }
+      }
+    });
+  }
+
+  if (startsWith) {
+    pipeline.push({
+      $match: {
+        __value: { $regex: `^${escapeRegex(startsWith)}`, $options: 'i' }
       }
     });
   }
@@ -275,96 +285,106 @@ const getFilterOptions = asyncHandler(async (req, res) => {
 
   assertLocalDatasetSupported(dataset, res);
 
+  const includeCategories = shouldIncludeOptionField(requestedField, 'category');
+  const includeGames = shouldIncludeOptionField(requestedField, 'game');
+  const includeSellers = shouldIncludeOptionField(requestedField, 'seller');
+
   const [categories, games, sellers] = await Promise.all([
-    DataRecord.aggregate(
-      createDistinctPipeline('category', {
-        contains: categorySearch,
-        gameName,
-        sellerName,
-        sellerRank,
-        limit: optionLimit
-      })
-    ),
-    DataRecord.aggregate([
-      ...createDistinctPipeline('gameName', {
-        category,
-        sellerName,
-        sellerRank,
-        contains: gameSearch,
-        limit: optionLimit
-      }),
-      {
-        $lookup: {
-          from: 'datarecords',
-          let: { selectedGame: '$value' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $eq: [{ $toLower: { $trim: { input: { $ifNull: ['$gameName', ''] } } } }, { $toLower: '$$selectedGame' }]
+    includeCategories
+      ? DataRecord.aggregate(
+          createDistinctPipeline('category', {
+            contains: categorySearch,
+            gameName,
+            sellerName,
+            sellerRank,
+            limit: optionLimit
+          })
+        )
+      : Promise.resolve([]),
+    includeGames
+      ? DataRecord.aggregate([
+          ...createDistinctPipeline('gameName', {
+            category,
+            sellerName,
+            sellerRank,
+            startsWith: gameSearch,
+            limit: optionLimit
+          }),
+          {
+            $lookup: {
+              from: 'datarecords',
+              let: { selectedGame: '$value' },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $eq: [{ $toLower: { $trim: { input: { $ifNull: ['$gameName', ''] } } } }, { $toLower: '$$selectedGame' }]
+                    }
+                  }
+                },
+                ...(category
+                  ? [
+                      {
+                        $match: {
+                          category: { $regex: `^${escapeRegex(category)}$`, $options: 'i' }
+                        }
+                      }
+                    ]
+                  : []),
+                ...(sellerName
+                  ? [
+                      {
+                        $match: {
+                          sellerName: { $regex: `^${escapeRegex(sellerName)}$`, $options: 'i' }
+                        }
+                      }
+                    ]
+                  : []),
+                ...(sellerRank
+                  ? [
+                      {
+                        $match: {
+                          sellerRank: { $regex: `^${escapeRegex(sellerRank)}$`, $options: 'i' }
+                        }
+                      }
+                    ]
+                  : []),
+                {
+                  $group: {
+                    _id: null,
+                    totalOrders: { $sum: '$ordersSold' }
+                  }
                 }
-              }
-            },
-            ...(category
-              ? [
-                  {
-                    $match: {
-                      category: { $regex: `^${escapeRegex(category)}$`, $options: 'i' }
-                    }
-                  }
-                ]
-              : []),
-            ...(sellerName
-              ? [
-                  {
-                    $match: {
-                      sellerName: { $regex: `^${escapeRegex(sellerName)}$`, $options: 'i' }
-                    }
-                  }
-                ]
-              : []),
-            ...(sellerRank
-              ? [
-                  {
-                    $match: {
-                      sellerRank: { $regex: `^${escapeRegex(sellerRank)}$`, $options: 'i' }
-                    }
-                  }
-                ]
-              : []),
-            {
-              $group: {
-                _id: null,
-                totalOrders: { $sum: '$ordersSold' }
+              ],
+              as: '__stats'
+            }
+          },
+          {
+            $addFields: {
+              total_success_order: {
+                $ifNull: [{ $first: '$__stats.totalOrders' }, 0]
               }
             }
-          ],
-          as: '__stats'
-        }
-      },
-      {
-        $addFields: {
-          total_success_order: {
-            $ifNull: [{ $first: '$__stats.totalOrders' }, 0]
+          },
+          {
+            $sort: {
+              total_success_order: -1,
+              value: 1
+            }
           }
-        }
-      },
-      {
-        $sort: {
-          total_success_order: -1,
-          value: 1
-        }
-      }
-    ]),
-    DataRecord.aggregate(
-      createDistinctPipeline('sellerName', {
-        category,
-        gameName,
-        sellerRank,
-        contains: sellerSearch,
-        limit: optionLimit
-      })
-    )
+        ])
+      : Promise.resolve([]),
+    includeSellers
+      ? DataRecord.aggregate(
+          createDistinctPipeline('sellerName', {
+            category,
+            gameName,
+            sellerRank,
+            startsWith: sellerSearch,
+            limit: optionLimit
+          })
+        )
+      : Promise.resolve([])
   ]);
 
   const responsePayload = {

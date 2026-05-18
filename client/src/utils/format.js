@@ -36,6 +36,13 @@ export const formatCurrency = (value = 0) =>
     maximumFractionDigits: 2
   }).format(Number(value) || 0);
 
+export const formatCompactNumber = (value = 0, options = {}) =>
+  new Intl.NumberFormat(undefined, {
+    notation: 'compact',
+    maximumFractionDigits: 2,
+    ...options
+  }).format(Number(value) || 0);
+
 const slugifySegment = (value) =>
   String(value || '')
     .trim()
@@ -53,7 +60,7 @@ export const buildBrandedExportFilename = ({
   const extensionMatch = normalizedFilename.match(/\.([a-z0-9]+)$/i);
   const extension = slugifySegment(format || extensionMatch?.[1] || 'csv') || 'csv';
   const normalizedDataset = slugifySegment(dataset);
-  const datasetSegment = normalizedDataset === 'eldorado' ? 'eldo' : normalizedDataset || 'dataset';
+  const datasetSegment = normalizedDataset || 'dataset';
   const date = new Date().toISOString().slice(0, 10);
 
   return `${prefix}-${datasetSegment}-export-${date}.${extension}`;

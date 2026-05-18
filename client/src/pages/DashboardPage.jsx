@@ -233,7 +233,7 @@ const DashboardPage = () => {
   const { user, refreshProfile } = useAuth();
   const [filters, setFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
-  const [dataset, setDataset] = useState({ total: 0 });
+  const [dataset, setDataset] = useState({ total: 0, g2gTotal: 0, eldoradoTotal: 0 });
   const [walletReport, setWalletReport] = useState({
     totalCredits: 0,
     totalDebits: 0,
@@ -297,19 +297,34 @@ const DashboardPage = () => {
     setError('');
 
     try {
-      const [{ data }, walletResponse, exportHistoryResponse] = await Promise.all([
+      const [g2gResponse, eldoradoResponse, walletResponse, exportHistoryResponse] = await Promise.all([
         dataHttp.get('/', {
           params: {
             ...requestedFilters,
+            dataset: 'g2g',
             page: 1,
             limit: 1
           }
         }),
+        dataHttp.get('/', {
+          params: {
+            ...requestedFilters,
+            dataset: 'eldorado',
+            page: 1,
+            limit: 1
+          }
+        }).catch(() => ({ data: { total: 0 } })),
         http.get('/wallet'),
         http.get('/export/history')
       ]);
 
-      setDataset({ total: data.total });
+      const g2gTotal = Number(g2gResponse?.data?.total) || 0;
+      const eldoradoTotal = Number(eldoradoResponse?.data?.total) || 0;
+      setDataset({
+        total: g2gTotal + eldoradoTotal,
+        g2gTotal,
+        eldoradoTotal
+      });
       const transactions = Array.isArray(walletResponse.data?.transactions) ? walletResponse.data.transactions : [];
       setSavedExports(Array.isArray(exportHistoryResponse.data?.exports) ? exportHistoryResponse.data.exports : []);
       setExportRetentionDays(Number(exportHistoryResponse.data?.retentionDays) || 20);
@@ -460,7 +475,14 @@ const DashboardPage = () => {
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard title="Wallet Balance" value={formatCoins(user?.coins)} helper="Updated after every export or approved recharge." icon={<WalletIcon />} loading={loading} />
-        <StatCard title="Filtered Rows" value={dataset.total} helper="Current dataset footprint matching your query." accent="bg-amber-500" icon={<RowsIcon />} loading={loading} />
+        <StatCard
+          title="Filtered Rows"
+          value={dataset.total}
+          helper={`G2G ${Number(dataset.g2gTotal || 0).toLocaleString()} + Eldorado ${Number(dataset.eldoradoTotal || 0).toLocaleString()}`}
+          accent="bg-amber-500"
+          icon={<RowsIcon />}
+          loading={loading}
+        />
         <StatCard title="Estimated Export Cost" value={formatCoins(estimatedCost)} helper="This is the estimated coin cost based on the applied filters." accent="bg-sky-500" icon={<ExportCostIcon />} loading={loading} />
       </div>
 

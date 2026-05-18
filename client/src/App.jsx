@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoadingScreen from './components/LoadingScreen';
@@ -11,13 +12,20 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import WalletPage from './pages/WalletPage';
 import AdminPage from './pages/AdminPage';
+import MailboxPage from './pages/MailboxPage';
 import G2gpage from './pages/G2gpage';
 import EldoradoPage from './pages/EldoradoPage';
 import SupportPage from './pages/SupportPage';
+import { trackPageView } from './utils/analytics';
 
 const App = () => {
   const { ready, user } = useAuth();
+  const location = useLocation();
   const userHomePath = user?.role === 'admin' ? '/admin' : '/dashboard';
+
+  useEffect(() => {
+    trackPageView(`${location.pathname}${location.search}`, document.title);
+  }, [location.pathname, location.search]);
 
   if (!ready) {
     return <LoadingScreen message="Loading application..." />;
@@ -44,6 +52,7 @@ const App = () => {
             <Route index element={<AdminPage />} />
             <Route path="users" element={<AdminPage />} />
             <Route path="payments" element={<AdminPage />} />
+            <Route path="mailbox" element={<MailboxPage />} />
             <Route path="settings" element={<Navigate to="/admin" replace />} />
           </Route>
         </Route>

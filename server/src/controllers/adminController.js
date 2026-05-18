@@ -3,6 +3,8 @@ const User = require('../models/User');
 const Payment = require('../models/Payment');
 const DataRecord = require('../models/DataRecord');
 const Transaction = require('../models/Transaction');
+const Notification = require('../models/Notification');
+const ExportFile = require('../models/ExportFile');
 const asyncHandler = require('../utils/asyncHandler');
 const parseCsvBuffer = require('../utils/csvImport');
 const { clearQueryCaches } = require('../services/filterService');
@@ -12,6 +14,35 @@ const upload = multer({ storage: multer.memoryStorage() });
 const getUsers = asyncHandler(async (req, res) => {
   const users = await User.find().select('-password').sort({ createdAt: -1 });
   res.json({ users });
+});
+
+const deleteUser = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const user = await User.findById(userId).select('name email role');
+
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found.');
+  }
+
+  if (String(user._id) === String(req.user._id)) {
+    res.status(400);
+    throw new Error('You cannot delete your own account.');
+  }
+
+  await Promise.all([
+    Payment.deleteMany({ userId: user._id }),
+    Payment.updateMany({ reviewedBy: user._id }, { $set: { reviewedBy: null } }),
+    Transaction.deleteMany({ userId: user._id }),
+    Notification.deleteMany({ userId: user._id }),
+    ExportFile.deleteMany({ userId: user._id }),
+    User.deleteOne({ _id: user._id })
+  ]);
+
+  res.json({
+    message: 'User deleted successfully.',
+    deletedUserId: userId
+  });
 });
 
 const adjustCoins = asyncHandler(async (req, res) => {
@@ -87,6 +118,7 @@ const getPendingPayments = asyncHandler(async (req, res) => {
 module.exports = {
   upload,
   getUsers,
+  deleteUser,
   adjustCoins,
   importDataset,
   getPendingPayments

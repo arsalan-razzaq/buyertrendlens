@@ -39,6 +39,31 @@ const preferredExportFields = [
   { label: 'Gallery Images', value: 'galleryImages' }
 ];
 
+const eldoradoSheetFields = [
+  { label: 'ID', value: '_id' },
+  { label: 'Game Name', value: 'gameName' },
+  { label: 'Product Url', value: 'productUrl' },
+  { label: 'Title', value: 'title' },
+  { label: 'Price', value: 'price' },
+  { label: 'USD', value: 'priceUsdAmount' },
+  { label: 'Seller Name', value: 'sellerName' },
+  { label: 'Category', value: 'category' },
+  { label: 'Rating', value: 'rating' },
+  { label: 'User Level', value: 'userLevel' },
+  { label: 'Seller Rank', value: 'sellerRank' },
+  { label: 'Score', value: 'score' },
+  { label: 'Group', value: 'groupName' },
+  { label: 'Created At', value: 'createdAt' },
+  { label: 'Updated At', value: 'updatedAt' },
+  { label: 'Offer Id', value: 'offerId' },
+  { label: 'Quantity', value: 'quantity' },
+  { label: 'Delivery Time', value: 'deliveryTime' },
+  { label: 'Offer State', value: 'offerState' },
+  { label: 'Seller Verified', value: 'sellerVerified' },
+  { label: 'Category Name', value: 'categoryName' },
+  { label: 'Category Title', value: 'categoryTitle' }
+];
+
 const IGNORED_EXPORT_KEYS = new Set(['__v']);
 
 const humanizeFieldName = (value) =>
@@ -88,7 +113,36 @@ const escapeHtml = (value) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-const buildExportFields = (records = []) => {
+const shouldIncludeField = (field, options = {}) => {
+  if (field.value === 'description') {
+    return options.includeDescription === true;
+  }
+
+  return true;
+};
+
+const shouldIncludeKey = (key, options = {}) => {
+  if (key === 'description') {
+    return options.includeDescription === true;
+  }
+
+  return true;
+};
+
+const normalizeDataset = (dataset) => String(dataset || '').trim().toLowerCase();
+
+const getPreferredFields = (options = {}) => {
+  const dataset = normalizeDataset(options.dataset);
+  const format = String(options.format || '').trim().toLowerCase();
+
+  if (dataset === 'eldorado' && format && format !== 'json') {
+    return eldoradoSheetFields;
+  }
+
+  return preferredExportFields;
+};
+
+const buildExportFields = (records = [], options = {}) => {
   const availableKeys = new Set();
 
   for (const record of records) {
@@ -103,15 +157,25 @@ const buildExportFields = (records = []) => {
     }
   }
 
-  const fields = [...preferredExportFields];
+  const preferredFields = getPreferredFields(options);
+  const fields = preferredFields.filter((field) => shouldIncludeField(field, options));
   const preferredKeys = new Set(fields.map((field) => field.value));
+  const dataset = normalizeDataset(options.dataset);
+  const format = String(options.format || '').trim().toLowerCase();
+  const shouldAppendExtraKeys = !(dataset === 'eldorado' && format && format !== 'json');
 
-  for (const key of availableKeys) {
-    if (!preferredKeys.has(key)) {
-      fields.push({
-        label: humanizeFieldName(key),
-        value: key
-      });
+  if (shouldAppendExtraKeys) {
+    for (const key of availableKeys) {
+      if (!shouldIncludeKey(key, options)) {
+        continue;
+      }
+
+      if (!preferredKeys.has(key)) {
+        fields.push({
+          label: humanizeFieldName(key),
+          value: key
+        });
+      }
     }
   }
 
@@ -127,23 +191,41 @@ const mapRecordToExportRow = (record, fields) =>
 const buildExportRows = (records = [], fields = buildExportFields(records)) =>
   (Array.isArray(records) ? records : []).map((record) => mapRecordToExportRow(record, fields));
 
-const createCsv = (records) => {
-  const fields = buildExportFields(records);
+const buildExportBaseName = (dataset = 'dataset') => {
+  const normalizedDataset = String(dataset || '').trim().toLowerCase() || 'dataset';
+  const date = new Date().toISOString().slice(0, 10);
+
+  return `buyertrendlens-com-${normalizedDataset}-export-${date}`;
+};
+
+const buildWorksheetName = (dataset = 'dataset') => {
+  const normalizedDataset = String(dataset || '').trim().toLowerCase() || 'dataset';
+  return `buyertrendlens-${normalizedDataset}-export`.slice(0, 31);
+};
+
+const createCsv = (records, options = {}) => {
+  const fields = buildExportFields(records, { ...options, includeDescription: false, format: options.format || 'csv' });
   const parser = new Parser({ fields: fields.map((field) => field.label) });
   return parser.parse(buildExportRows(records, fields));
 };
 
-const createTsv = (records) => {
-  const fields = buildExportFields(records);
+const createTsv = (records, options = {}) => {
+  const fields = buildExportFields(records, { ...options, includeDescription: false, format: options.format || 'tsv' });
   const parser = new Parser({ fields: fields.map((field) => field.label), delimiter: '\t' });
   return parser.parse(buildExportRows(records, fields));
 };
 
-const createJson = (records) => JSON.stringify(buildExportRows(records), null, 2);
+const createJson = (records, options = {}) =>
+  JSON.stringify(
+    buildExportRows(records, buildExportFields(records, { ...options, includeDescription: true, format: options.format || 'json' })),
+    null,
+    2
+  );
 
-const createExcel = (records) => {
-  const fields = buildExportFields(records);
+const createExcel = (records, options = {}) => {
+  const fields = buildExportFields(records, { ...options, includeDescription: false, format: options.format || 'xls' });
   const descriptionFieldKey = 'description';
+  const worksheetName = escapeHtml(buildWorksheetName(options.dataset));
   const rows = (Array.isArray(records) ? records : []).map((record) =>
     fields
       .map((field) => {
@@ -170,6 +252,12 @@ const createExcel = (records) => {
     '<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />',
     '<meta name="ProgId" content="Excel.Sheet" />',
     '<meta name="Generator" content="Buyer Trend Lens" />',
+    '<!--[if gte mso 9]><xml>',
+    '<x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>',
+    `<x:Name>${worksheetName}</x:Name>`,
+    '<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>',
+    '</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook>',
+    '</xml><![endif]-->',
     '<style>',
     'table { border-collapse: collapse; width: 100%; font-family: Calibri, Arial, sans-serif; table-layout: fixed; }',
     '.header { background: #dbeafe; color: #0f172a; font-weight: 700; text-align: center; border: 1px solid #cbd5e1; padding: 10px 12px; }',
@@ -191,7 +279,9 @@ const createExcel = (records) => {
 
 module.exports = {
   exportFields: preferredExportFields,
+  buildExportBaseName,
   buildExportFields,
+  buildWorksheetName,
   createCsv,
   createExcel,
   createJson,

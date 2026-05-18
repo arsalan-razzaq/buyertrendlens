@@ -10,7 +10,7 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['payment_request', 'payment_approved', 'payment_rejected', 'system'],
+      enum: ['payment_request', 'payment_approved', 'payment_rejected', 'mailbox_email', 'system'],
       default: 'system'
     },
     title: {

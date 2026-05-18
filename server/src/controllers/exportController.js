@@ -5,7 +5,13 @@ const User = require('../models/User');
 const zlib = require('zlib');
 const asyncHandler = require('../utils/asyncHandler');
 const { buildFilters, clearQueryCaches } = require('../services/filterService');
-const { createCsv, createExcel, createJson, createTsv } = require('../services/csvService');
+const {
+  buildExportBaseName,
+  createCsv,
+  createExcel,
+  createJson,
+  createTsv
+} = require('../services/csvService');
 const {
   isRemoteDatasetEnabled,
   countRemoteDatasetRecords,
@@ -49,11 +55,7 @@ const exportFormatConfig = {
 
 const getExportFormat = (value) => exportFormatConfig[String(value || DEFAULT_EXPORT_FORMAT).toLowerCase()] ? String(value || DEFAULT_EXPORT_FORMAT).toLowerCase() : DEFAULT_EXPORT_FORMAT;
 const buildExportFilename = (dataset, extension) => {
-  const normalizedDataset = String(dataset || '').trim().toLowerCase();
-  const datasetSegment = normalizedDataset === 'eldorado' ? 'eldo' : normalizedDataset || 'dataset';
-  const date = new Date().toISOString().slice(0, 10);
-
-  return `buyertrendlens-com-${datasetSegment}-export-${date}.${extension}`;
+  return `${buildExportBaseName(dataset)}.${extension}`;
 };
 
 const assertLocalDatasetSupported = (dataset, res) => {
@@ -179,12 +181,15 @@ const exportCsv = asyncHandler(async (req, res) => {
 
   try {
     const records = isRemoteDatasetEnabled(dataset)
-      ? await enrichRemoteDatasetRecordsForExport(await fetchAllRemoteDatasetRecords(rawFilters, dataset), dataset)
+      ? await (async () => {
+          const remoteRecords = await fetchAllRemoteDatasetRecords(rawFilters, dataset);
+          return enrichRemoteDatasetRecordsForExport(remoteRecords, dataset);
+        })()
       : await (() => {
           assertLocalDatasetSupported(dataset, res);
           return DataRecord.find(filters).sort({ createdAt: -1 }).lean();
         })();
-    const content = exportConfig.createContent(records);
+    const content = exportConfig.createContent(records, { dataset, format });
     const compressedContent = zlib.gzipSync(Buffer.from(content, 'utf8'));
 
     // Deduct coins atomically so concurrent exports cannot overspend the same wallet balance.

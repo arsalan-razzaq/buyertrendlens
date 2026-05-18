@@ -159,9 +159,9 @@ const ExportModal = ({ preview, loading, onClose, onConfirm }) => {
                 <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-sky-300 border-t-sky-700" />
               </span>
               <div>
-                <p className="font-semibold text-sky-900">Export tayar ho rahi hai</p>
+                <p className="font-semibold text-sky-900">Your export is being prepared</p>
                 <p className="mt-1 text-sky-700">
-                  Download isi popup se complete hoga. Background section me ab alag loading card nahi dikhaya jayega.
+                  The download will complete from this popup. The background section will no longer show a separate loading card.
                 </p>
               </div>
             </div>

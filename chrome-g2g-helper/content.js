@@ -1,11 +1,17 @@
 const STORAGE_KEY = 'g2gChatHelperState';
-const EDITOR_SELECTOR = '.toastui-editor-ww-container .ProseMirror[contenteditable="true"]';
+const EDITOR_SELECTORS = [
+  '.toastui-editor-ww-container .ProseMirror[contenteditable="true"]',
+  '.ProseMirror[contenteditable="true"]',
+  '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"]'
+];
 const SEND_BUTTON_SELECTORS = [
   'button[type="submit"]',
   'button.ant-btn-primary',
   'button[class*="send"]',
   '.chat-send button',
-  '.message-send button'
+  '.message-send button',
+  '[role="button"]'
 ];
 
 const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -13,12 +19,52 @@ const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 const getCurrentSellerId = () => window.location.hash.match(/\/user\/(\d+)/i)?.[1] || '';
 let lastAutoSentKey = '';
 
+const setDebugFlag = (value) => {
+  document.documentElement.setAttribute('data-g2g-helper-status', value);
+};
+
+const formatOutgoingMessage = (value) =>
+  String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+const personalizeMessage = (template, sellerName) => {
+  const normalizedName = String(sellerName || '').trim();
+  return String(template || '')
+    .replace(/\{name\}/gi, normalizedName)
+    .replace(/\{seller_name\}/gi, normalizedName);
+};
+
+const buildNextNavigationUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('g2gHelperNav', String(Date.now()));
+    return parsed.toString();
+  } catch (error) {
+    return url;
+  }
+};
+
 const getState = async () => {
   const result = await chrome.storage.local.get(STORAGE_KEY);
   return result[STORAGE_KEY] || null;
 };
 
-const findEditor = () => document.querySelector(EDITOR_SELECTOR);
+const findEditor = () => {
+  for (const selector of EDITOR_SELECTORS) {
+    const editor = document.querySelector(selector);
+    if (editor && isVisible(editor)) {
+      return editor;
+    }
+  }
+
+  return null;
+};
 const isVisible = (element) => {
   if (!element) {
     return false;
@@ -43,7 +89,8 @@ const findSendButton = () => {
       }
 
       const text = String(button.textContent || '').trim().toLowerCase();
-      return !text || text.includes('send');
+      const ariaLabel = String(button.getAttribute('aria-label') || '').trim().toLowerCase();
+      return !text || text.includes('send') || ariaLabel.includes('send');
     });
 
     if (matched) {
@@ -56,11 +103,14 @@ const findSendButton = () => {
       return false;
     }
 
-    return String(button.textContent || '').trim().toLowerCase() === 'send';
+    const text = String(button.textContent || '').trim().toLowerCase();
+    const ariaLabel = String(button.getAttribute('aria-label') || '').trim().toLowerCase();
+    return text === 'send' || ariaLabel === 'send';
   }) || null;
 };
 
 const setEditorText = (editor, message) => {
+  const formattedMessage = formatOutgoingMessage(message);
   editor.focus();
 
   const selection = window.getSelection();
@@ -70,21 +120,33 @@ const setEditorText = (editor, message) => {
   selection.addRange(range);
 
   document.execCommand('selectAll', false, null);
-  document.execCommand('insertText', false, message);
+  document.execCommand('insertText', false, formattedMessage);
 
-  if (editor.innerText.trim() === message.trim()) {
+  if (editor.innerText.trim() === formattedMessage) {
     return true;
   }
 
   editor.innerHTML = '';
-  const paragraph = document.createElement('p');
-  paragraph.textContent = message;
-  editor.appendChild(paragraph);
-  editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: message }));
+  const lines = formattedMessage.split('\n');
+
+  lines.forEach((line, index) => {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = line || '';
+    editor.appendChild(paragraph);
+
+    if (index === lines.length - 1) {
+      return;
+    }
+
+    if (line === '' && lines[index + 1] === '') {
+      return;
+    }
+  });
+  editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: formattedMessage }));
   editor.dispatchEvent(new Event('change', { bubbles: true }));
   editor.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: ' ' }));
 
-  return editor.innerText.trim() === message.trim();
+  return editor.innerText.trim() === formattedMessage;
 };
 
 const waitForEditor = async (attempts = 30) => {
@@ -115,14 +177,59 @@ const waitForSendButton = async (attempts = 30) => {
 
 const sendCurrentChat = async () => {
   const sendButton = await waitForSendButton();
-  if (!sendButton) {
+  const editor = findEditor();
+
+  if (sendButton) {
+    sendButton.focus();
+    sendButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    sendButton.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    sendButton.click();
+    return true;
+  }
+
+  if (!editor) {
     return false;
   }
 
-  sendButton.focus();
-  sendButton.click();
+  editor.focus();
+  editor.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter', code: 'Enter' }));
+  editor.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter', code: 'Enter' }));
   return true;
 };
+
+const advanceAfterSend = async () =>
+  new Promise((resolve) => {
+    chrome.storage.local.get(STORAGE_KEY, (result) => {
+      const state = result?.[STORAGE_KEY];
+      const sellers = Array.isArray(state?.sellers) ? state.sellers : [];
+      const currentIndex = Number(state?.currentIndex) || 0;
+      const nextIndex = currentIndex + 1;
+      const nextSeller = sellers[nextIndex];
+
+      if (!nextSeller?.url) {
+        setDebugFlag('done');
+        resolve(false);
+        return;
+      }
+
+      const nextState = {
+        ...state,
+        currentIndex: nextIndex
+      };
+
+      chrome.storage.local.set({ [STORAGE_KEY]: nextState }, () => {
+        if (chrome.runtime.lastError) {
+          setDebugFlag('save-next-failed');
+          resolve(false);
+          return;
+        }
+
+        setDebugFlag(`next:${nextIndex + 1}`);
+        window.top.location.href = buildNextNavigationUrl(nextSeller.url);
+        resolve(true);
+      });
+    });
+  });
 
 const autoFillCurrentChat = async () => {
   const state = await getState();
@@ -137,17 +244,19 @@ const autoFillCurrentChat = async () => {
     return;
   }
 
+  const personalizedMessage = personalizeMessage(state.message, current.sellerName);
+
   const editor = await waitForEditor();
   if (!editor) {
     return;
   }
 
   const currentMessage = editor.innerText.trim();
-  const targetMessage = state.message.trim();
+  const targetMessage = formatOutgoingMessage(personalizedMessage);
   const autoSendKey = `${sellerId}:${targetMessage}`;
 
   if (currentMessage !== targetMessage) {
-    setEditorText(editor, state.message);
+    setEditorText(editor, personalizedMessage);
   }
 
   if (!state.autoSendEnabled || lastAutoSentKey === autoSendKey) {
@@ -157,8 +266,17 @@ const autoFillCurrentChat = async () => {
   await sleep(250);
   const sent = await sendCurrentChat();
   if (sent) {
+    setDebugFlag('sent');
     lastAutoSentKey = autoSendKey;
+    await sleep(900);
+    await advanceAfterSend();
   }
+};
+
+const scheduleAutoFill = (delay = 1200) => {
+  window.setTimeout(() => {
+    autoFillCurrentChat().catch(() => {});
+  }, delay);
 };
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -186,20 +304,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     await sleep(250);
     const sent = await sendCurrentChat();
-    sendResponse({ ok: sent, sent, error: sent ? '' : 'Send button not found.' });
+    if (sent) {
+      await sleep(900);
+      await advanceAfterSend();
+    }
+
+    sendResponse({ ok: sent, sent, error: sent ? '' : 'Send action not available.' });
   })();
 
   return true;
 });
 
 window.addEventListener('load', () => {
-  window.setTimeout(() => {
-    autoFillCurrentChat().catch(() => {});
-  }, 1200);
+  scheduleAutoFill(1200);
 });
 
 window.addEventListener('hashchange', () => {
-  window.setTimeout(() => {
-    autoFillCurrentChat().catch(() => {});
-  }, 1200);
+  scheduleAutoFill(1200);
+});
+
+const observer = new MutationObserver(() => {
+  if (!findEditor()) {
+    return;
+  }
+
+  observer.disconnect();
+  scheduleAutoFill(250);
+});
+
+observer.observe(document.documentElement, {
+  childList: true,
+  subtree: true
 });

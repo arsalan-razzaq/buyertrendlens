@@ -30,6 +30,22 @@ h1 {
   font-weight: 600;
 }
 
+.uploadRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+input[type="file"] {
+  width: 100%;
+  border: 1px solid #cfd6e4;
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: #fff;
+  color: #18202a;
+}
+
 textarea {
   width: 100%;
   resize: vertical;
@@ -38,13 +54,6 @@ textarea {
   padding: 10px;
   background: #fff;
   color: #18202a;
-}
-
-.checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
 }
 
 .status {
@@ -63,11 +72,6 @@ textarea {
   margin-bottom: 8px;
 }
 
-.actions:last-child {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-bottom: 0;
-}
-
 button {
   border: 0;
   border-radius: 10px;
@@ -80,4 +84,20 @@ button {
 
 button:hover {
   background: #bb1319;
+}
+
+button.secondary {
+  background: #fff;
+  color: #18202a;
+  border: 1px solid #cfd6e4;
+}
+
+button.secondary:hover {
+  background: #eef2f8;
+}
+
+.hint {
+  display: block;
+  margin-top: 6px;
+  color: #5f6b81;
 }

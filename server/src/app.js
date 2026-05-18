@@ -20,6 +20,29 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 const rateLimitWindowMs = Math.max(Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, 1000);
 const rateLimitMax = Math.max(Number(process.env.RATE_LIMIT_MAX) || 300, 1);
 const normalizeOrigin = (origin) => String(origin || '').trim().replace(/\/$/, '');
+const buildOriginVariants = (origin) => {
+  const normalized = normalizeOrigin(origin);
+
+  if (!normalized) {
+    return [];
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const hostname = parsed.hostname.toLowerCase();
+    const variants = new Set([`${parsed.protocol}//${hostname}${parsed.port ? `:${parsed.port}` : ''}`]);
+
+    if (!hostname.startsWith('www.')) {
+      variants.add(`${parsed.protocol}//www.${hostname}${parsed.port ? `:${parsed.port}` : ''}`);
+    } else {
+      variants.add(`${parsed.protocol}//${hostname.slice(4)}${parsed.port ? `:${parsed.port}` : ''}`);
+    }
+
+    return [...variants];
+  } catch (error) {
+    return [normalized];
+  }
+};
 const isAllowedVercelOrigin = (origin) => {
   try {
     const hostname = new URL(origin).hostname.toLowerCase();
@@ -31,7 +54,7 @@ const isAllowedVercelOrigin = (origin) => {
 const configuredOrigins = [process.env.CORS_ORIGINS, process.env.CLIENT_URL]
   .filter(Boolean)
   .flatMap((value) => String(value).split(','))
-  .map(normalizeOrigin)
+  .flatMap(buildOriginVariants)
   .filter(Boolean);
 const allowedOrigins = new Set(configuredOrigins);
 

@@ -3,6 +3,7 @@ const http = require('http');
 const app = require('./app');
 const connectDatabase = require('./config/db');
 const { initSocketServer } = require('./services/socketService');
+const { startMailboxSync } = require('./services/mailboxSyncService');
 const { warmRemoteFilterOptionCaches } = require('./services/remoteDatasetService');
 
 const port = process.env.PORT || 5000;
@@ -13,6 +14,9 @@ const startServer = async () => {
   initSocketServer(server);
   server.listen(port, () => {
     console.log(`Server listening on port ${port}`);
+    startMailboxSync().catch((error) => {
+      console.error('Mailbox sync startup failed:', error.message);
+    });
     setTimeout(() => {
       warmRemoteFilterOptionCaches().catch((error) => {
         console.error('Remote filter cache warm-up failed:', error.message);

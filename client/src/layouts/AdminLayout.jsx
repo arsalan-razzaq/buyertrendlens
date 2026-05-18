@@ -30,6 +30,13 @@ const QueueIcon = () => (
   </svg>
 );
 
+const MailIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z" />
+    <path d="m5 7 7 6 7-6" />
+  </svg>
+);
+
 const MenuIcon = () => (
   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M4 7h16" />
@@ -48,7 +55,8 @@ const CloseIcon = () => (
 const adminNavItems = [
   { label: 'Dashboard', path: '/admin', icon: <DashboardIcon /> },
   { label: 'User Management', path: '/admin/users', icon: <UsersIcon /> },
-  { label: 'Payments Queue', path: '/admin/payments', icon: <QueueIcon /> }
+  { label: 'Payments Queue', path: '/admin/payments', icon: <QueueIcon /> },
+  { label: 'Mailbox', path: '/admin/mailbox', icon: <MailIcon /> }
 ];
 
 const AdminLayout = () => {

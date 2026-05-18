@@ -7,7 +7,7 @@ import { formatCoins, formatLocalDateTime } from '../utils/format';
 
 const panelClass = 'rounded-2xl border border-slate-200 bg-white shadow-sm';
 const defaultWorkspaceOptions = {
-  coinsPerUsdt: 100,
+  coinsPerUsdt: 1000,
   manualBinance: {
     enabled: true,
     accountLabel: 'Wallet ID',
@@ -137,7 +137,7 @@ const WalletPage = () => {
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
   const recentPayments = useMemo(() => payments.slice(0, 5), [payments]);
-  const coinsPerUsdt = Number(workspaceOptions.coinsPerUsdt || 100);
+  const coinsPerUsdt = Number(workspaceOptions.coinsPerUsdt || 1000);
   const manualBinance = {
     ...defaultWorkspaceOptions.manualBinance,
     ...(workspaceOptions.manualBinance || {}),

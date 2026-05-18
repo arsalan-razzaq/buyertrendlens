@@ -9,6 +9,7 @@ import { buildBrandedExportFilename, downloadBlob, formatCoins } from '../utils/
 
 const COIN_COST_PER_ROW = 1;
 const EXPORT_CONFIRMATION_STORAGE_KEY = 'skip-export-confirmation';
+const TOUR_COMPLETED_STORAGE_KEY = 'marketplace-tour-completed';
 const FILTER_APPLY_DEBOUNCE_MS = 300;
 const SUPPORTED_EXPORT_FORMATS = new Set(['xls', 'csv', 'json', 'tsv']);
 
@@ -40,7 +41,7 @@ const MarketplacePage = ({ dataset }) => {
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [tourOpen, setTourOpen] = useState(true);
+  const [tourOpen, setTourOpen] = useState(false);
 
   const downloadSavedExport = async (exportId, fallbackFilename) => {
     const response = await http.get(`/export/${exportId}/download`, {
@@ -66,6 +67,11 @@ const MarketplacePage = ({ dataset }) => {
   });
   const skipExportConfirmation = Boolean(savedExportFormat);
 
+  const getTourStorageKey = (activeDataset, activeUser) => {
+    const userKey = activeUser?._id || activeUser?.email || 'guest';
+    return `${TOUR_COMPLETED_STORAGE_KEY}:${activeDataset}:${userKey}`;
+  };
+
   useEffect(() => {
     setFilters(initialFilters);
     setAppliedFilters(initialFilters);
@@ -73,8 +79,17 @@ const MarketplacePage = ({ dataset }) => {
     setMessage('');
     setError('');
     setRefreshing(false);
-    setTourOpen(true);
-  }, [dataset]);
+    if (typeof window === 'undefined') {
+      setTourOpen(false);
+      return;
+    }
+
+    const hasCompletedTour = window.localStorage.getItem(getTourStorageKey(dataset, user)) === 'true';
+    if (!hasCompletedTour) {
+      window.localStorage.setItem(getTourStorageKey(dataset, user), 'true');
+    }
+    setTourOpen(!hasCompletedTour);
+  }, [dataset, user?._id, user?.email]);
 
   useEffect(() => {
     refreshProfile().catch(() => {});
@@ -276,7 +291,14 @@ const MarketplacePage = ({ dataset }) => {
       ];
 
   const closeTour = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(getTourStorageKey(dataset, user), 'true');
+    }
     setTourOpen(false);
+  };
+
+  const openTour = () => {
+    setTourOpen(true);
   };
 
   const handleExportClick = async () => {
@@ -312,7 +334,7 @@ const MarketplacePage = ({ dataset }) => {
         filters={filters}
         onChange={updateFilter}
         onReset={handleReset}
-        onOpenTour={() => setTourOpen(true)}
+        onOpenTour={openTour}
         loading={loading}
       />
 

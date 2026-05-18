@@ -35,6 +35,33 @@ const ChevronIcon = () => (
   </svg>
 );
 
+const EyeIcon = () => (
+  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden="true">
+    <path
+      d="M2.2 10C3.84 6.88 6.7 5.25 10 5.25C13.3 5.25 16.16 6.88 17.8 10C16.16 13.12 13.3 14.75 10 14.75C6.7 14.75 3.84 13.12 2.2 10Z"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+    />
+    <circle cx="10" cy="10" r="2.25" stroke="currentColor" strokeWidth="1.5" />
+  </svg>
+);
+
+const normalizeOptionText = (value) => String(value || '').trim().toLowerCase();
+
+const matchesSearchQuery = (option, query, matchFromStart = false) => {
+  const normalizedOption = normalizeOptionText(option);
+  const normalizedQuery = normalizeOptionText(query);
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return matchFromStart
+    ? normalizedOption.startsWith(normalizedQuery)
+    : normalizedOption.includes(normalizedQuery);
+};
+
 const SearchableSelect = memo(function SearchableSelect({
   label,
   value,
@@ -50,6 +77,7 @@ const SearchableSelect = memo(function SearchableSelect({
   fetchOnOpen = true,
   remoteSearchMinLength = 0,
   remoteSearchHint = '',
+  matchFromStart = false,
   disabled = false,
   tourId = ''
 }) {
@@ -154,12 +182,9 @@ const SearchableSelect = memo(function SearchableSelect({
     };
   }, [canRunRemoteSearch, disabled, loadOptions, open, queryKey, remoteSearchQuery, shouldFetchRemotely, value]);
 
-  const normalizedQuery = trimmedSearchQuery.toLowerCase();
-  const visibleOptions = clientSearch
-    ? options
-        .filter((option) => !normalizedQuery || String(option).toLowerCase().includes(normalizedQuery))
-        .slice(0, OPTION_VISIBLE_LIMIT)
-    : options;
+  const visibleOptions = options
+    .filter((option) => matchesSearchQuery(option, trimmedSearchQuery, matchFromStart))
+    .slice(0, OPTION_VISIBLE_LIMIT);
   const shouldShowRemoteHint = !clientSearch && !canRunRemoteSearch && !visibleOptions.length && remoteSearchHint;
 
   return (
@@ -238,12 +263,35 @@ const SearchableSelect = memo(function SearchableSelect({
 const FilterPanel = ({ dataset = 'g2g', filters, onChange, onReset, onOpenTour, loading }) => {
   const optionsCacheRef = useRef(new Map());
   const pendingOptionsRef = useRef(new Map());
+  const tourMenuRef = useRef(null);
   const isEldorado = dataset === 'eldorado';
+  const [tourMenuOpen, setTourMenuOpen] = useState(false);
 
   useEffect(() => {
     optionsCacheRef.current.clear();
     pendingOptionsRef.current.clear();
   }, [dataset, isEldorado]);
+
+  useEffect(() => {
+    setTourMenuOpen(false);
+  }, [dataset]);
+
+  useEffect(() => {
+    if (!tourMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (!tourMenuRef.current?.contains(event.target)) {
+        setTourMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [tourMenuOpen]);
 
   const buildOptionParams = useCallback((field, searchQuery = '') => {
     const normalizedSearchQuery = String(searchQuery || '').trim();
@@ -365,9 +413,33 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, onReset, onOpenTour, 
           </p> */}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" className="button-secondary" onClick={onOpenTour}>
-            Guide tour
-          </button>
+          <div className="relative" ref={tourMenuRef}>
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+              onClick={() => setTourMenuOpen((current) => !current)}
+              aria-label="Open tour options"
+              aria-haspopup="menu"
+              aria-expanded={tourMenuOpen}
+            >
+              <EyeIcon />
+            </button>
+
+            {tourMenuOpen ? (
+              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 min-w-[180px] rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  onClick={() => {
+                    setTourMenuOpen(false);
+                    onOpenTour();
+                  }}
+                >
+                  Start guide tour
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button type="button" className="button-secondary" onClick={onReset} disabled={loading}>
             Reset filters
           </button>
@@ -422,6 +494,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, onReset, onOpenTour, 
           clientSearch={false}
           fetchOnOpen={Boolean(filters.category)}
           remoteSearchMinLength={0}
+          matchFromStart
           disabled={false}
           tourId="game-filter"
         />
@@ -475,6 +548,7 @@ const FilterPanel = ({ dataset = 'g2g', filters, onChange, onReset, onOpenTour, 
           fetchOnOpen={Boolean(filters.category || filters.gameName || filters.minSellerRank)}
           remoteSearchMinLength={1}
           remoteSearchHint="Type at least 1 character to search sellers."
+          matchFromStart
           disabled={false}
           tourId="seller-filter"
         />

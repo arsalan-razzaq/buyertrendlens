@@ -89,7 +89,7 @@ const NotificationBell = () => {
               <div>
                 <p className="text-sm font-semibold text-slate-950">Notifications</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {connected ? 'Live updates connected' : 'Trying to reconnect'}
+                  {connected ? 'Live updates connected' : 'Realtime reconnecting, fallback sync active'}
                 </p>
               </div>
               {unreadCount ? (

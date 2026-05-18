@@ -10,9 +10,6 @@
   "host_permissions": [
     "https://www.g2g.com/*"
   ],
-  "background": {
-    "service_worker": "background.js"
-  },
   "action": {
     "default_title": "G2G Chat Helper",
     "default_popup": "popup.html"

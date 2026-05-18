@@ -208,6 +208,8 @@ const sendSignupOtpEmail = async ({ to, name, otp, expiresInMinutes = 10 }) => {
 };
 
 module.exports = {
+  getSmtpConfig,
+  createTransporter,
   sendContactEmail,
   sendPaymentStatusEmail,
   sendSignupOtpEmail

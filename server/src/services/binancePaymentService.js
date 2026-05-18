@@ -139,7 +139,7 @@ const getManualBinancePaymentConfig = () => {
 const getPaymentWorkspaceOptions = () => ({
   binancePayEnabled: isBinancePayConfigured(),
   depositApiEnabled: isBinanceDepositApiConfigured(),
-  coinsPerUsdt: Number(process.env.COINS_PER_USDT || 100),
+  coinsPerUsdt: Number(process.env.COINS_PER_USDT || 1000),
   manualBinance: getManualBinancePaymentConfig(),
   depositNetworks: getSupportedDepositNetworks().map((network) => ({
     key: network.key,

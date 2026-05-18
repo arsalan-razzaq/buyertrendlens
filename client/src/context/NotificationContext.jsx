@@ -162,6 +162,18 @@ export const NotificationProvider = ({ children }) => {
   }, [loadNotifications]);
 
   useEffect(() => {
+    if (!isAuthenticated || connected) {
+      return undefined;
+    }
+
+    const fallbackTimer = window.setInterval(() => {
+      loadNotifications();
+    }, 15000);
+
+    return () => window.clearInterval(fallbackTimer);
+  }, [connected, isAuthenticated, loadNotifications]);
+
+  useEffect(() => {
     if (!isAuthenticated || !user?._id) {
       socketRef.current?.disconnect();
       socketRef.current = null;
